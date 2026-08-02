@@ -4,18 +4,31 @@ import { cpus } from 'node:os';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 import { captureAll } from './capture.ts';
-import { mergeRoutes, routesFromCrawl, routesFromDisk, routesFromSitemap, normalizePath } from './discover.ts';
+import { crawlWithBrowser } from './crawl.ts';
+import {
+  mergeRoutes,
+  normalizePath,
+  routesFromCrawl,
+  routesFromDisk,
+  routesFromSitemap,
+  sampleRoutes,
+} from './discover.ts';
 import { chooseSheetWidth, renderSheet } from './sheet.ts';
 import { DEVICES, type Device, type Theme } from './types.ts';
 
 const HELP = `everypage — every page of your app, as one image
 
   npx everypage http://localhost:3000
+  npx everypage https://yoursite.com
 
-Finds every route your app has, shoots each one on phone and desktop in
+Finds every page a site has, shoots each one on phone and desktop in
 light and dark, and stitches them into a single contact sheet you can
 look at — or drag into Claude or Cursor instead of making it take 47
 screenshots one at a time.
+
+Works on a local dev server or any public website. Cookie banners are
+dismissed, lazy images are loaded, and client-rendered links are found
+by crawling in a real browser.
 
 Options
   --devices phone,desktop     which sizes (phone, tablet, desktop)
@@ -30,6 +43,14 @@ Options
   --columns <n>               tiles per row on the sheet
   --concurrency <n>           parallel browser contexts (default: cpu count)
   --timeout <seconds>         per-page load budget (default: 15)
+  --hide <sel,sel>            CSS selectors to hide (chat widgets, banners)
+  --wait <selector>           wait for this element before shooting
+  --delay <ms>                extra settle time per page
+  --depth <n>                 how many link levels to follow (default: 2)
+  --no-lazy                   skip the scroll that loads lazy images
+  --no-banners                don't try to dismiss cookie dialogs
+  --no-robots                 crawl paths robots.txt disallows
+  --user-agent <ua>           override the browser user agent
   --insecure                  accept self-signed certs (local https)
   --force                     write into a directory that has other files
   --no-open                   don't open the sheet when done
@@ -55,6 +76,14 @@ interface Args {
   force: boolean;
   insecure: boolean;
   timeoutMs: number;
+  hide: string[];
+  waitFor?: string;
+  delayMs: number;
+  depth: number;
+  lazyLoad: boolean;
+  dismissBanners: boolean;
+  respectRobots: boolean;
+  userAgent?: string;
 }
 
 function fail(message: string): never {
@@ -80,6 +109,12 @@ function parseArgs(argv: string[]): Args {
     force: false,
     insecure: false,
     timeoutMs: 15000,
+    hide: [],
+    delayMs: 0,
+    depth: 2,
+    lazyLoad: true,
+    dismissBanners: true,
+    respectRobots: true,
   };
   const need = (i: number, flag: string): string => argv[i + 1] ?? fail(`${flag} needs a value`);
 
@@ -141,6 +176,35 @@ function parseArgs(argv: string[]): Args {
         break;
       case '--insecure':
         args.insecure = true;
+        break;
+      case '--hide':
+        args.hide = need(i, '--hide').split(',').map((x) => x.trim()).filter(Boolean);
+        i++;
+        break;
+      case '--wait':
+        args.waitFor = need(i, '--wait');
+        i++;
+        break;
+      case '--delay':
+        args.delayMs = Math.max(0, Math.floor(Number(need(i, '--delay'))) || 0);
+        i++;
+        break;
+      case '--depth':
+        args.depth = Math.max(1, Math.floor(Number(need(i, '--depth'))) || 2);
+        i++;
+        break;
+      case '--user-agent':
+        args.userAgent = need(i, '--user-agent');
+        i++;
+        break;
+      case '--no-lazy':
+        args.lazyLoad = false;
+        break;
+      case '--no-banners':
+        args.dismissBanners = false;
+        break;
+      case '--no-robots':
+        args.respectRobots = false;
         break;
       case '--timeout':
         args.timeoutMs = Math.max(1000, (Math.floor(Number(need(i, '--timeout'))) || 15) * 1000);
@@ -242,43 +306,78 @@ async function main(): Promise<void> {
     fail(`can't reach ${args.url} — is your dev server running?`);
   }
 
+  // The browser is needed for capture regardless, and discovery may want
+  // it too, so start it once here.
+  const browser = await launchBrowser();
+
   // 2. Discover routes.
   let routes;
   if (args.routes) {
     routes = args.routes.map((path) => ({ path, source: 'given' as const }));
   } else {
-    // All three sources always run and merge. A sitemap listing only the
+    // All sources always run and merge. A sitemap listing only the
     // marketing pages must not hide the rest of the app.
     const fromDisk = routesFromDisk(args.project);
-    const [sitemap, crawled] = await Promise.all([
+    const [sitemap, quickCrawl] = await Promise.all([
       routesFromSitemap(args.url, 4000),
-      routesFromCrawl(args.url, { maxPages: Math.max(args.max * 2, 60), depth: 2, timeoutMs: 6000 }),
+      routesFromCrawl(args.url, { maxPages: Math.max(args.max * 2, 60), depth: args.depth, timeoutMs: 6000 }),
     ]);
-    routes = mergeRoutes(fromDisk, [...sitemap, ...crawled]);
+
+    // The cheap crawl reads raw HTML, which is empty on a client-rendered
+    // app — React writes the links after it boots. When the fast path finds
+    // almost nothing, crawl again in a real browser where the links exist.
+    let browserCrawled: typeof quickCrawl = [];
+    let blockedByRobots = 0;
+    const needsJs = quickCrawl.length <= 1 && sitemap.length === 0 && fromDisk.length === 0;
+    if (needsJs) {
+      process.stdout.write(`  ${paint('no links in the HTML — looking again in a browser…', DIM)}\n`);
+      const result = await crawlWithBrowser(browser, args.url, {
+        maxPages: Math.max(args.max * 2, 40),
+        depth: args.depth,
+        timeoutMs: args.timeoutMs,
+        respectRobots: args.respectRobots,
+        insecure: args.insecure,
+        ...(args.userAgent ? { userAgent: args.userAgent } : {}),
+        ...(args.auth ? { storageState: args.auth } : {}),
+      });
+      browserCrawled = result.routes;
+      blockedByRobots = result.blockedByRobots;
+    }
+
+    routes = mergeRoutes(fromDisk, [...sitemap, ...quickCrawl, ...browserCrawled]);
     const how = [
       fromDisk.length > 0 ? `${fromDisk.length} from your route files` : null,
       sitemap.length > 0 ? `${sitemap.length} from sitemap.xml` : null,
-      crawled.length > 0 ? `${crawled.length} by crawling links` : null,
+      browserCrawled.length > 0
+        ? `${browserCrawled.length} by crawling in a browser`
+        : quickCrawl.length > 0
+          ? `${quickCrawl.length} by crawling links`
+          : null,
     ].filter(Boolean);
     if (how.length > 0) process.stdout.write(`  ${paint(`found ${how.join(', ')}`, DIM)}\n`);
+    if (blockedByRobots > 0) {
+      process.stdout.write(
+        `  ${paint(`${blockedByRobots} paths skipped per robots.txt (--no-robots to include them)`, DIM)}\n`,
+      );
+    }
 
-    // A client-rendered SPA has no links to crawl and no route files to
-    // read, so discovery finds only the entry page. Saying nothing here
-    // hands someone a one-page sheet of a seven-page app.
-    if (fromDisk.length === 0 && routes.length <= 1) {
+    // Even a browser crawl finds nothing on an app whose only navigation is
+    // a form submit or a button handler. Say so rather than handing over a
+    // one-page sheet of a seven-page app.
+    if (routes.length <= 1) {
       process.stdout.write(
         `\n  ${paint('only found the page you gave me.', BOLD)}\n` +
-          `  ${paint('If this is a client-rendered app (Vite, CRA, React Router), its links', DIM)}\n` +
-          `  ${paint('only exist after JS runs. List them: --routes /,/about,/pricing', DIM)}\n\n`,
+          `  ${paint('If navigation happens without <a> links, list the pages yourself:', DIM)}\n` +
+          `  ${paint('--routes /,/about,/pricing', DIM)}\n\n`,
       );
     }
   }
   // --max caps *discovery*. Routes you asked for by name are never dropped.
   if (!args.routes && routes.length > args.max) {
     process.stdout.write(
-      `  ${paint(`showing the first ${args.max} of ${routes.length} routes (--max to change)`, DIM)}\n`,
+      `  ${paint(`${routes.length} routes found — showing the top ${args.max} (--max to change)`, DIM)}\n`,
     );
-    routes = routes.slice(0, args.max);
+    routes = sampleRoutes(routes, args.max);
   }
   if (routes.length === 0) fail('found no pages — pass --routes /,/about to shoot specific ones');
 
@@ -287,7 +386,7 @@ async function main(): Promise<void> {
     `  ${paint(`${routes.length} routes × ${args.devices.length} sizes × ${args.themes.length} themes = ${total} screens`, DIM)}\n\n`,
   );
 
-  // 3. Shoot.
+  // 3. Shoot. (browser launched before discovery when a JS crawl is needed)
   // Only ever remove what we created. `--out .` is the obvious thing to
   // type when you want the sheet in the current folder, and wiping the
   // directory someone named is never an acceptable interpretation of it.
@@ -305,7 +404,6 @@ async function main(): Promise<void> {
   }
   rmSync(shotsDir, { recursive: true, force: true });
   rmSync(sheetPath, { force: true });
-  const browser = await launchBrowser();
   let result;
   try {
     result = await captureAll(
@@ -320,6 +418,12 @@ async function main(): Promise<void> {
         timeoutMs: args.timeoutMs,
         fullPage: args.fullPage,
         insecure: args.insecure,
+        hide: args.hide,
+        delayMs: args.delayMs,
+        lazyLoad: args.lazyLoad,
+        dismissBanners: args.dismissBanners,
+        ...(args.waitFor ? { waitFor: args.waitFor } : {}),
+        ...(args.userAgent ? { userAgent: args.userAgent } : {}),
         ...(args.auth ? { storageState: args.auth } : {}),
       },
       (done, all) => {

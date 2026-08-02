@@ -43,6 +43,17 @@ export interface CaptureOptions {
   storageState?: string;
   fullPage: boolean;
   insecure?: boolean;
+  /** CSS selectors to hide before shooting. */
+  hide?: string[];
+  /** Wait for this selector before shooting. */
+  waitFor?: string;
+  /** Extra settle time per page, in ms. */
+  delayMs?: number;
+  /** Scroll to trigger lazy-loaded images. */
+  lazyLoad?: boolean;
+  /** Click cookie/consent dialogs away. */
+  dismissBanners?: boolean;
+  userAgent?: string;
 }
 
 export const DEVICES: Record<string, Device> = {

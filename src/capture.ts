@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Browser, Page } from 'playwright-core';
 import { isDynamic, normalizePath } from './discover.ts';
+import { preparePage } from './prepare.ts';
 import type { CaptureOptions, Route, Shot, Theme, Device } from './types.ts';
 
 /**
@@ -125,6 +126,7 @@ export async function captureAll(
         ...(opts.storageState ? { storageState: opts.storageState } : {}),
         reducedMotion: 'reduce',
         ...(opts.insecure ? { ignoreHTTPSErrors: true } : {}),
+        ...(opts.userAgent ? { userAgent: opts.userAgent } : {}),
       });
       contexts.set(key, ctx);
       return ctx;
@@ -152,6 +154,15 @@ export async function captureAll(
           timeout: opts.timeoutMs,
         });
         await settle(page, opts.timeoutMs);
+        // Real websites need work before they are worth photographing:
+        // consent walls, chat widgets, images that only load on scroll.
+        await preparePage(page, {
+          hide: opts.hide ?? [],
+          delayMs: opts.delayMs ?? 0,
+          lazyLoad: opts.lazyLoad ?? false,
+          dismissBanners: opts.dismissBanners ?? true,
+          ...(opts.waitFor ? { waitFor: opts.waitFor } : {}),
+        });
 
         const landed = normalizePath(new URL(page.url()).pathname);
         const redirected = landed !== route.path;

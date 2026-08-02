@@ -1,0 +1,232 @@
+import { mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
+import type { Browser } from 'playwright-core';
+import { captureAll } from './capture.ts';
+import { crawlWithBrowser } from './crawl.ts';
+import {
+  mergeRoutes,
+  normalizePath,
+  routesFromCrawl,
+  routesFromDisk,
+  routesFromSitemap,
+  sampleRoutes,
+} from './discover.ts';
+import { chooseSheetWidth, renderSheet } from './sheet.ts';
+import { DEVICES, type Device, type Route, type Shot, type Theme } from './types.ts';
+
+/** Options for {@link everypage}. Only `url` is required. */
+export interface EverypageOptions {
+  /** The site to shoot. `localhost:3000` and full URLs both work. */
+  url: string;
+  /** Device names (`phone`, `tablet`, `desktop`) or full device objects. */
+  devices?: (keyof typeof DEVICES | Device)[];
+  themes?: Theme[];
+  /** Shoot exactly these paths and skip discovery entirely. */
+  routes?: string[];
+  /** Where the app's source lives, for reading framework route files. */
+  projectDir?: string;
+  /** Output directory. Receives `everypage.png` and `shots/`. */
+  outDir?: string;
+  /** Cap on discovered routes (ignored when `routes` is given). */
+  max?: number;
+  /** Playwright storageState path, so private pages shoot as a logged-in user. */
+  storageState?: string;
+  concurrency?: number;
+  timeoutMs?: number;
+  fullPage?: boolean;
+  /** Link levels to follow while crawling. */
+  depth?: number;
+  hide?: string[];
+  waitFor?: string;
+  delayMs?: number;
+  lazyLoad?: boolean;
+  dismissBanners?: boolean;
+  respectRobots?: boolean;
+  insecure?: boolean;
+  userAgent?: string;
+  /** Skip writing the contact sheet and only produce individual shots. */
+  skipSheet?: boolean;
+  /** Reuse a browser you already launched; it will not be closed. */
+  browser?: Browser;
+  onProgress?: (done: number, total: number) => void;
+}
+
+export interface EverypageResult {
+  /** Absolute path to the contact sheet, unless `skipSheet` was set. */
+  sheet?: string;
+  /** Every capture attempt, including the ones that produced no image. */
+  shots: Shot[];
+  /** The routes that were shot. */
+  routes: Route[];
+  /** Routes that redirected to something that looks like a login. */
+  authWalled: string[];
+  /** True when the site rendered identically in light and dark. */
+  noDarkMode: boolean;
+  outDir: string;
+  elapsedMs: number;
+}
+
+export interface DiscoverResult {
+  routes: Route[];
+  fromDisk: number;
+  fromSitemap: number;
+  fromCrawl: number;
+  usedBrowser: boolean;
+  blockedByRobots: number;
+}
+
+function toDevice(d: keyof typeof DEVICES | Device): Device {
+  if (typeof d === 'string') {
+    const device = DEVICES[d];
+    if (!device) throw new Error(`unknown device "${d}" (phone, tablet, desktop)`);
+    return device;
+  }
+  return d;
+}
+
+/** Add a scheme when the caller passed a bare host. */
+export function normalizeUrl(input: string): string {
+  const url = /^https?:\/\//.test(input) ? input : `http://${input}`;
+  new URL(url); // throws on garbage
+  return url;
+}
+
+/**
+ * Find every page of a site. Reads framework route files, sitemap.xml, and
+ * crawled links; falls back to crawling in a real browser when the HTML has
+ * no links, which is the normal case for client-rendered apps.
+ */
+export async function discoverRoutes(
+  url: string,
+  browser: Browser,
+  opts: Pick<EverypageOptions, 'projectDir' | 'max' | 'depth' | 'timeoutMs' | 'respectRobots' | 'insecure' | 'userAgent' | 'storageState'> = {},
+): Promise<DiscoverResult> {
+  const max = opts.max ?? 20;
+  const depth = opts.depth ?? 2;
+  const fromDisk = opts.projectDir ? routesFromDisk(opts.projectDir) : [];
+  const [sitemap, quickCrawl] = await Promise.all([
+    routesFromSitemap(url, 4000),
+    routesFromCrawl(url, { maxPages: Math.max(max * 2, 60), depth, timeoutMs: 6000 }),
+  ]);
+
+  let browserCrawled: Route[] = [];
+  let blockedByRobots = 0;
+  const needsJs = quickCrawl.length <= 1 && sitemap.length === 0 && fromDisk.length === 0;
+  if (needsJs) {
+    const result = await crawlWithBrowser(browser, url, {
+      maxPages: Math.max(max * 2, 40),
+      depth,
+      timeoutMs: opts.timeoutMs ?? 15000,
+      respectRobots: opts.respectRobots ?? true,
+      ...(opts.insecure !== undefined ? { insecure: opts.insecure } : {}),
+      ...(opts.userAgent ? { userAgent: opts.userAgent } : {}),
+      ...(opts.storageState ? { storageState: opts.storageState } : {}),
+    });
+    browserCrawled = result.routes;
+    blockedByRobots = result.blockedByRobots;
+  }
+
+  return {
+    routes: mergeRoutes(fromDisk, [...sitemap, ...quickCrawl, ...browserCrawled]),
+    fromDisk: fromDisk.length,
+    fromSitemap: sitemap.length,
+    fromCrawl: browserCrawled.length || quickCrawl.length,
+    usedBrowser: needsJs,
+    blockedByRobots,
+  };
+}
+
+/**
+ * Shoot every page of a site and stitch one contact sheet.
+ *
+ * ```ts
+ * import { everypage } from 'everypage';
+ *
+ * const { sheet, shots } = await everypage({ url: 'https://example.com' });
+ * console.log(sheet); // → /abs/path/everypage/everypage.png
+ * ```
+ */
+export async function everypage(options: EverypageOptions): Promise<EverypageResult> {
+  const started = Date.now();
+  const url = normalizeUrl(options.url);
+  const outDir = resolve(options.outDir ?? 'everypage');
+  const devices = (options.devices ?? ['phone', 'desktop']).map(toDevice);
+  const themes = options.themes ?? (['light', 'dark'] as Theme[]);
+  const max = options.max ?? 20;
+
+  const browser = options.browser ?? (await (await import('playwright-core')).chromium.launch());
+  const ownsBrowser = !options.browser;
+
+  try {
+    const routes = options.routes
+      ? options.routes.map((path) => ({ path: normalizePath(path), source: 'given' as const }))
+      : sampleRoutes(
+          (
+            await discoverRoutes(url, browser, {
+              ...(options.projectDir !== undefined ? { projectDir: options.projectDir } : {}),
+              max,
+              ...(options.depth !== undefined ? { depth: options.depth } : {}),
+              ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+              ...(options.respectRobots !== undefined ? { respectRobots: options.respectRobots } : {}),
+              ...(options.insecure !== undefined ? { insecure: options.insecure } : {}),
+              ...(options.userAgent !== undefined ? { userAgent: options.userAgent } : {}),
+              ...(options.storageState !== undefined ? { storageState: options.storageState } : {}),
+            })
+          ).routes,
+          max,
+        );
+
+    mkdirSync(outDir, { recursive: true });
+    const shotsDir = resolve(outDir, 'shots');
+
+    const captured = await captureAll(
+      browser,
+      routes,
+      {
+        baseUrl: url,
+        devices,
+        themes,
+        outDir: shotsDir,
+        concurrency: options.concurrency ?? 8,
+        timeoutMs: options.timeoutMs ?? 15000,
+        fullPage: options.fullPage ?? false,
+        hide: options.hide ?? [],
+        delayMs: options.delayMs ?? 0,
+        lazyLoad: options.lazyLoad ?? true,
+        dismissBanners: options.dismissBanners ?? true,
+        ...(options.waitFor !== undefined ? { waitFor: options.waitFor } : {}),
+        ...(options.insecure !== undefined ? { insecure: options.insecure } : {}),
+        ...(options.userAgent !== undefined ? { userAgent: options.userAgent } : {}),
+        ...(options.storageState !== undefined ? { storageState: options.storageState } : {}),
+      },
+      options.onProgress,
+    );
+
+    const elapsedMs = Date.now() - started;
+    let sheet: string | undefined;
+    if (!options.skipSheet && captured.shots.some((s) => s.file)) {
+      const tileHeight = 200;
+      sheet = resolve(outDir, 'everypage.png');
+      await renderSheet(browser, captured.shots, {
+        title: new URL(url).host,
+        outDir: shotsDir,
+        outFile: sheet,
+        tileHeight,
+        sheetWidth: chooseSheetWidth(captured.shots, tileHeight),
+        elapsedMs,
+      });
+    }
+
+    return {
+      ...(sheet ? { sheet } : {}),
+      shots: captured.shots,
+      routes,
+      authWalled: captured.authWalled,
+      noDarkMode: captured.noDarkMode,
+      outDir,
+      elapsedMs,
+    };
+  } finally {
+    if (ownsBrowser) await browser.close().catch(() => {});
+  }
+}

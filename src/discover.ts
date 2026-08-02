@@ -152,7 +152,15 @@ export async function routesFromCrawl(
         }
       }),
     );
-    for (const html of pages) {
+    for (const rawHtml of pages) {
+      // Scripts, styles, templates and comments routinely contain href-like
+      // strings (a framework's own markup, an inlined router table). Matching
+      // inside them invents routes that no link on the page points to.
+      const html = rawHtml
+        .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<template\b[\s\S]*?<\/template>/gi, ' ')
+        .replace(/<!--[\s\S]*?-->/g, ' ');
       for (const m of html.matchAll(/<a\b[^>]*\bhref\s*=\s*["']([^"'>]+)["']/gi)) {
         const href = m[1]!;
         if (href.startsWith('#') || /^(mailto|tel|javascript):/i.test(href)) continue;
@@ -173,6 +181,30 @@ export async function routesFromCrawl(
     frontier = next;
   }
   return [...seen].map((path) => ({ path, source: 'crawl' as const }));
+}
+
+/**
+ * Rank routes for a limited sheet. A real site can have hundreds of pages;
+ * taking the alphabetical first 20 of playwright.dev yields twenty pages of
+ * one API section, which tells you nothing about the site. Shallow pages
+ * first gives you the map: /, /docs, /pricing before /docs/api/class-foo.
+ */
+export function byImportance(a: Route, b: Route): number {
+  const depth = (p: string): number => (p === '/' ? 0 : p.split('/').length - 1);
+  return (
+    depth(a.path) - depth(b.path) ||
+    a.path.length - b.path.length ||
+    a.path.localeCompare(b.path, undefined, { numeric: true })
+  );
+}
+
+/** Take the `limit` most representative routes, then restore path order. */
+export function sampleRoutes(routes: Route[], limit: number): Route[] {
+  if (routes.length <= limit) return routes;
+  return [...routes]
+    .sort(byImportance)
+    .slice(0, limit)
+    .sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
 }
 
 /** Is this a dynamic route template rather than a real URL? */
