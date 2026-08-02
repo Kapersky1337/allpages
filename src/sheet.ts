@@ -97,6 +97,11 @@ export function buildHtml(shots: Shot[], opts: SheetOptions): string {
       if (inDevice.length === 0) return '';
       const device = inDevice[0]!.device;
       const width = Math.round(opts.tileHeight * (device.width / device.height));
+      // Balance the rows. Packing greedily leaves a single orphan tile next
+      // to a wall of empty space (23 phones → 22 + 1), which reads as broken.
+      const perRow = Math.max(1, Math.floor((opts.sheetWidth - PADDING) / (width + GAP)));
+      const rows = Math.max(1, Math.ceil(inDevice.length / perRow));
+      const columns = Math.ceil(inDevice.length / rows);
 
       const cells = inDevice
         .map((shot) => {
@@ -114,7 +119,7 @@ export function buildHtml(shots: Shot[], opts: SheetOptions): string {
 
       return `<section>
   <h2>${escapeHtml(device.name)} <span>${device.width}×${device.height}</span></h2>
-  <div class="grid" style="--w:${width}px">
+  <div class="grid" style="--w:${width}px; grid-template-columns: repeat(${columns}, ${width}px)">
 ${cells}
   </div>
 </section>`;
