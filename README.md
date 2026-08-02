@@ -8,7 +8,7 @@ npx everypage localhost:3000
 
 ![every page of a demo app, as one contact sheet](./example.png)
 
-That whole sheet took **5.8 seconds**. No config, no list of URLs, no test file. It found the routes by itself.
+That whole sheet took **6.0 seconds**. No config, no list of URLs, no test file. It found the routes by itself.
 
 ## Why
 
@@ -23,7 +23,7 @@ npx everypage localhost:3000        # nothing to install
 npm i -g everypage                  # or keep it around
 ```
 
-First run downloads Chromium via Playwright if you don't have it.
+It uses Playwright's Chromium if you have it, and falls back to the Chrome or Edge already on your machine. If neither exists: `npx playwright install chromium`.
 
 ## How it finds your pages
 
@@ -32,6 +32,10 @@ Three sources, merged, best first — so it works on a Next.js repo and on a URL
 1. **Your route files.** `app/**/page.tsx`, `pages/**`, `src/routes/**/+page.svelte`. Route groups like `app/(marketing)/about` resolve to `/about`; `/api` and `_internals` are skipped. This finds pages nothing links to yet.
 2. **`sitemap.xml`**, if you serve one.
 3. **Crawling your links**, two levels deep, same-origin only.
+
+All three run every time and merge — a `sitemap.xml` that only lists your marketing pages won't hide the rest of the app.
+
+Client-rendered SPAs (Vite, CRA, React Router) are the honest gap: their links only exist after JavaScript runs, and there are no route files to read. everypage says so and points you at `--routes`, rather than handing you a one-page sheet of a seven-page app.
 
 ## The two things that ruin every tool like this
 
@@ -67,8 +71,12 @@ A map with a labeled hole beats a map that quietly lies.
 --routes /a,/b              shoot exactly these, skip discovery
 --project <dir>             where your code lives, for route files (default: cwd)
 --out <dir>                 output directory (default: ./everypage)
---max <n>                   cap discovered routes (default: 40)
---full-page                 whole scroll height, not just the fold
+--max <n>                   cap discovered routes (default: 20)
+--full-page                 whole scroll height into shots/
+--columns <n>               tiles per row on the sheet
+--timeout <seconds>         per-page load budget (default: 15)
+--insecure                  accept self-signed certs (local https)
+--force                     write into a directory that has other files
 --concurrency <n>           parallel browser contexts (default: cpu count)
 --no-open                   don't open the sheet when it's done
 ```
@@ -90,7 +98,9 @@ The individual shots are plain files, and the sheet is one image. Instead of 44 
 - **Client-rendered apps** get a fixed settle window (network-idle, then 220ms). Apps that stream forever still shoot, but may catch a spinner — `--full-page` and a warm dev server help.
 - **Route discovery is best-effort.** Framework file conventions and links are what exist to read; a route reachable only through a form submission won't be found. `--routes` is the escape hatch.
 - **Above the fold by default.** `--full-page` captures the whole scroll height into `shots/`, but sheet tiles stay uniform and show the top of each page — a grid where one tile is ten times taller than its neighbour stops being readable.
+- **No dark mode?** If every dark shot comes out byte-identical to its light one, the dark tiles are dropped and the sheet says so — half a sheet of duplicates helps nobody.
 - Auth-walled and undiscoverable routes are listed, never silently dropped.
+- `everypage` only ever writes `everypage.png` and `shots/`. If `--out` points at a directory with anything else in it, it refuses rather than deleting your files.
 
 ## Build
 

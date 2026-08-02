@@ -19,13 +19,20 @@ function fileToRoute(relative: string): string | null {
   if (appMatch) {
     p = `/${appMatch[1] ?? ''}`;
   } else {
-    // Next.js pages router / SvelteKit / Remix-ish: pages/foo.tsx → /foo
-    const pagesMatch = /^(?:src\/)?(?:pages|routes)\/(.*)\.(tsx|ts|jsx|js|svelte|mdx|vue)$/.exec(p);
-    if (!pagesMatch) return null;
-    p = `/${pagesMatch[1]}`;
-    // SvelteKit: /foo/+page → /foo
-    p = p.replace(/\/\+page$/, '');
-    if (p.endsWith('/index')) p = p.slice(0, -'/index'.length);
+    // SvelteKit: only +page.* is a route. +layout, +error and +page.server
+    // are not pages, and treating them as routes invents URLs that 404 —
+    // `sv create` scaffolds a +layout.svelte, so this hits everyone.
+    const svelteMatch = /^(?:src\/)?routes\/(.*\/)?\+page\.(svelte|js|ts)$/.exec(p);
+    if (svelteMatch) {
+      p = `/${svelteMatch[1] ?? ''}`;
+    } else {
+      // Next.js pages router / Nuxt: pages/foo.tsx → /foo
+      const pagesMatch = /^(?:src\/)?pages\/(.*)\.(tsx|ts|jsx|js|mdx|vue)$/.exec(p);
+      if (!pagesMatch) return null;
+      p = `/${pagesMatch[1]}`;
+      if (p.endsWith('/index')) p = p.slice(0, -'/index'.length);
+      if (/\/_(app|document|error)$/.test(p)) return null;
+    }
   }
 
   // Strip Next.js route groups: /(marketing)/pricing → /pricing
@@ -198,7 +205,7 @@ export function mergeRoutes(fromDisk: Route[], fromWeb: Route[]): Route[] {
       byPath.set(route.path, route);
     }
   }
-  return [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path));
+  return [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
 }
 
 function templateToRegex(template: string): RegExp {

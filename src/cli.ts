@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { cpus } from 'node:os';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
@@ -25,10 +25,13 @@ Options
   --routes /a,/b              shoot exactly these, skip discovery
   --project <dir>             where your app's code lives (default: cwd)
   --out <dir>                 output directory (default: ./everypage)
-  --max <n>                   cap discovered routes (default: 40)
-  --full-page                 capture whole scroll height, not just the fold
+  --max <n>                   cap discovered routes (default: 20)
+  --full-page                 capture whole scroll height into shots/
   --columns <n>               tiles per row on the sheet
   --concurrency <n>           parallel browser contexts (default: cpu count)
+  --timeout <seconds>         per-page load budget (default: 15)
+  --insecure                  accept self-signed certs (local https)
+  --force                     write into a directory that has other files
   --no-open                   don't open the sheet when done
   -h, --help                  this help
 
@@ -49,6 +52,9 @@ interface Args {
   columns?: number;
   concurrency: number;
   open: boolean;
+  force: boolean;
+  insecure: boolean;
+  timeoutMs: number;
 }
 
 function fail(message: string): never {
@@ -63,12 +69,17 @@ function parseArgs(argv: string[]): Args {
     themes: ['light', 'dark'],
     project: process.cwd(),
     out: 'everypage',
-    max: 40,
+    // 20 routes × 4 variants = 80 tiles, which still downscales to
+    // something a person (or a vision model) can actually read.
+    max: 20,
     fullPage: false,
     // Browser contexts are cheap and the work is almost all waiting on the
     // page. Measured on the demo app: 6 → 8.0s, 12 → 4.8s, 16 → 3.8s.
     concurrency: Math.min(16, Math.max(4, cpus().length)),
     open: true,
+    force: false,
+    insecure: false,
+    timeoutMs: 15000,
   };
   const need = (i: number, flag: string): string => argv[i + 1] ?? fail(`${flag} needs a value`);
 
@@ -82,7 +93,7 @@ function parseArgs(argv: string[]): Args {
         break;
       case '-v':
       case '--version':
-        process.stdout.write('0.1.0\n');
+        process.stdout.write(`${version()}\n`);
         process.exit(0);
         break;
       case '--devices': {
@@ -110,7 +121,8 @@ function parseArgs(argv: string[]): Args {
         args.out = need(i++, '--out');
         break;
       case '--max':
-        args.max = Math.max(1, Number(need(i++, '--max')) || 40);
+        args.max = Math.max(1, Math.floor(Number(need(i, '--max'))) || 20);
+        i++;
         break;
       case '--columns':
         args.columns = Math.max(1, Number(need(i++, '--columns')) || 4);
@@ -123,6 +135,16 @@ function parseArgs(argv: string[]): Args {
         break;
       case '--no-open':
         args.open = false;
+        break;
+      case '--force':
+        args.force = true;
+        break;
+      case '--insecure':
+        args.insecure = true;
+        break;
+      case '--timeout':
+        args.timeoutMs = Math.max(1000, (Math.floor(Number(need(i, '--timeout'))) || 15) * 1000);
+        i++;
         break;
       default:
         if (arg.startsWith('-')) fail(`unknown option: ${arg}`);
@@ -156,6 +178,15 @@ function parseArgs(argv: string[]): Args {
   return args;
 }
 
+function version(): string {
+  try {
+    const pkg = new URL('../package.json', import.meta.url);
+    return JSON.parse(readFileSync(pkg, 'utf8')).version as string;
+  } catch {
+    return '0.0.0';
+  }
+}
+
 const DIM = '\x1b[2m';
 const BOLD = '\x1b[1m';
 const GREEN = '\x1b[32m';
@@ -163,16 +194,51 @@ const RESET = '\x1b[0m';
 const color = process.stdout.isTTY === true && process.env['NO_COLOR'] === undefined;
 const paint = (s: string, c: string): string => (color ? `${c}${s}${RESET}` : s);
 
+/**
+ * playwright-core deliberately ships no browsers, so a bare `npx everypage`
+ * would fail on a clean machine. Fall back to the Chrome or Edge the user
+ * already has before telling them to install anything.
+ */
+async function launchBrowser() {
+  const launchArgs = ['--force-color-profile=srgb', '--hide-scrollbars'];
+  const attempts: { channel?: string; label: string }[] = [
+    { label: "Playwright's Chromium" },
+    { channel: 'chrome', label: 'Google Chrome' },
+    { channel: 'msedge', label: 'Microsoft Edge' },
+  ];
+  const problems: string[] = [];
+  for (const attempt of attempts) {
+    try {
+      return await chromium.launch({
+        args: launchArgs,
+        ...(attempt.channel ? { channel: attempt.channel } : {}),
+      });
+    } catch (error) {
+      problems.push(`${attempt.label}: ${error instanceof Error ? error.message.split('\n')[0] : 'failed'}`);
+    }
+  }
+  fail(
+    `couldn't start a browser. Install one once with:\n\n    npx playwright install chromium\n\n` +
+      `  tried — ${problems.join(' · ')}`,
+  );
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const started = Date.now();
 
   process.stdout.write(`\n  ${paint('everypage', BOLD)} ${paint(args.url, DIM)}\n\n`);
 
-  // 1. Reachability — a clear message beats a wall of browser errors.
+  // 1. Reachability — a clear message beats a wall of browser errors, and
+  // a TLS complaint must not be reported as "server not running".
+  if (args.insecure) process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0';
   try {
     await fetch(args.url, { signal: AbortSignal.timeout(5000) });
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? String(error.cause ?? error.message) : '';
+    if (/certificate|SELF_SIGNED|DEPTH_ZERO|ERR_TLS/i.test(message)) {
+      fail(`${args.url} has a certificate this doesn't trust (self-signed?) — re-run with --insecure`);
+    }
     fail(`can't reach ${args.url} — is your dev server running?`);
   }
 
@@ -181,19 +247,31 @@ async function main(): Promise<void> {
   if (args.routes) {
     routes = args.routes.map((path) => ({ path, source: 'given' as const }));
   } else {
+    // All three sources always run and merge. A sitemap listing only the
+    // marketing pages must not hide the rest of the app.
     const fromDisk = routesFromDisk(args.project);
-    const sitemap = await routesFromSitemap(args.url, 4000);
-    const crawled =
-      sitemap.length > 0
-        ? sitemap
-        : await routesFromCrawl(args.url, { maxPages: args.max * 2, depth: 2, timeoutMs: 6000 });
+    const [sitemap, crawled] = await Promise.all([
+      routesFromSitemap(args.url, 4000),
+      routesFromCrawl(args.url, { maxPages: Math.max(args.max * 2, 60), depth: 2, timeoutMs: 6000 }),
+    ]);
     routes = mergeRoutes(fromDisk, [...sitemap, ...crawled]);
     const how = [
       fromDisk.length > 0 ? `${fromDisk.length} from your route files` : null,
       sitemap.length > 0 ? `${sitemap.length} from sitemap.xml` : null,
-      crawled.length > 0 && sitemap.length === 0 ? `${crawled.length} by crawling links` : null,
+      crawled.length > 0 ? `${crawled.length} by crawling links` : null,
     ].filter(Boolean);
     if (how.length > 0) process.stdout.write(`  ${paint(`found ${how.join(', ')}`, DIM)}\n`);
+
+    // A client-rendered SPA has no links to crawl and no route files to
+    // read, so discovery finds only the entry page. Saying nothing here
+    // hands someone a one-page sheet of a seven-page app.
+    if (fromDisk.length === 0 && routes.length <= 1) {
+      process.stdout.write(
+        `\n  ${paint('only found the page you gave me.', BOLD)}\n` +
+          `  ${paint('If this is a client-rendered app (Vite, CRA, React Router), its links', DIM)}\n` +
+          `  ${paint('only exist after JS runs. List them: --routes /,/about,/pricing', DIM)}\n\n`,
+      );
+    }
   }
   // --max caps *discovery*. Routes you asked for by name are never dropped.
   if (!args.routes && routes.length > args.max) {
@@ -210,9 +288,24 @@ async function main(): Promise<void> {
   );
 
   // 3. Shoot.
+  // Only ever remove what we created. `--out .` is the obvious thing to
+  // type when you want the sheet in the current folder, and wiping the
+  // directory someone named is never an acceptable interpretation of it.
   const outDir = resolve(args.out);
-  rmSync(outDir, { recursive: true, force: true });
-  const browser = await chromium.launch({ args: ['--force-color-profile=srgb', '--hide-scrollbars'] });
+  const sheetPath = resolve(outDir, 'everypage.png');
+  const shotsDir = resolve(outDir, 'shots');
+  if (existsSync(outDir)) {
+    const stray = readdirSync(outDir).filter((e) => e !== 'shots' && e !== 'everypage.png');
+    if (stray.length > 0 && !args.force) {
+      fail(
+        `${args.out} already has other files in it (${stray.slice(0, 3).join(', ')}${stray.length > 3 ? ', …' : ''}).\n` +
+          `  everypage only writes everypage.png and shots/ — pick an empty --out, or pass --force.`,
+      );
+    }
+  }
+  rmSync(shotsDir, { recursive: true, force: true });
+  rmSync(sheetPath, { force: true });
+  const browser = await launchBrowser();
   let result;
   try {
     result = await captureAll(
@@ -224,8 +317,9 @@ async function main(): Promise<void> {
         themes: args.themes,
         outDir: resolve(outDir, 'shots'),
         concurrency: args.concurrency,
-        timeoutMs: 15000,
+        timeoutMs: args.timeoutMs,
         fullPage: args.fullPage,
+        insecure: args.insecure,
         ...(args.auth ? { storageState: args.auth } : {}),
       },
       (done, all) => {
@@ -264,9 +358,27 @@ async function main(): Promise<void> {
     // 5. Report.
     const captured = result.shots.filter((s) => s.file).length;
     const seconds = (elapsedMs / 1000).toFixed(1);
+
+    // A green check over an empty sheet is the one place this tool could
+    // lie about itself. Zero captures is a failure, and exits like one.
+    if (captured === 0) {
+      const why = result.shots.find((s) => s.skipped)?.skipped ?? 'every page failed to load';
+      process.stderr.write(
+        `\n  ${paint('captured nothing', BOLD)} — ${why}\n` +
+          `  ${paint('check the URL, or pass --auth if the app is behind a login', DIM)}\n\n`,
+      );
+      await browser.close().catch(() => {});
+      process.exit(1);
+    }
+
     process.stdout.write(
-      `  ${paint('✓', GREEN)} ${paint(String(captured), BOLD)} screens in ${paint(`${seconds}s`, BOLD)} → ${paint(sheet.replace(`${process.cwd()}/`, ''), BOLD)}\n`,
+      `  ${paint('✓', GREEN)} ${paint(String(captured), BOLD)} screen${captured === 1 ? '' : 's'} in ${paint(`${seconds}s`, BOLD)} → ${paint(sheet.replace(`${process.cwd()}/`, ''), BOLD)}\n`,
     );
+    if (result.noDarkMode) {
+      process.stdout.write(
+        `  ${paint('no dark mode — every dark shot was identical to its light one, so they were dropped', DIM)}\n`,
+      );
+    }
     if (result.authWalled.length > 0) {
       const list = result.authWalled.slice(0, 3).join(', ');
       const more = result.authWalled.length > 3 ? ` +${result.authWalled.length - 3} more` : '';

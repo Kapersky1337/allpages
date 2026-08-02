@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Browser, Page } from 'playwright-core';
 import { isDynamic, normalizePath } from './discover.ts';
@@ -48,6 +48,41 @@ export interface CaptureResult {
   shots: Shot[];
   /** Paths that redirected to a login-looking URL, deduped. */
   authWalled: string[];
+  /**
+   * True when every dark shot came out byte-identical to its light twin —
+   * the app has no dark mode, and showing both would double the sheet
+   * while halving the information in it.
+   */
+  noDarkMode: boolean;
+}
+
+/** Drop dark shots that are byte-identical to their light counterpart. */
+function dropIdenticalDarkShots(shots: Shot[], outDir: string): { shots: Shot[]; noDarkMode: boolean } {
+  const darkShots = shots.filter((s) => s.theme === 'dark' && s.file);
+  if (darkShots.length === 0) return { shots, noDarkMode: false };
+
+  let identical = 0;
+  const redundant = new Set<Shot>();
+  for (const dark of darkShots) {
+    const light = shots.find(
+      (s) => s.theme === 'light' && s.file && s.route.path === dark.route.path && s.device.name === dark.device.name,
+    );
+    if (!light?.file) continue;
+    try {
+      const a = readFileSync(join(outDir, dark.file!));
+      const b = readFileSync(join(outDir, light.file));
+      if (a.equals(b)) {
+        identical++;
+        redundant.add(dark);
+      }
+    } catch {
+      // unreadable file; leave the tile alone
+    }
+  }
+  // Only collapse when the app has no dark mode at all. A partial match
+  // means some pages do theme, and those differences are worth seeing.
+  if (identical !== darkShots.length) return { shots, noDarkMode: false };
+  return { shots: shots.filter((s) => !redundant.has(s)), noDarkMode: true };
 }
 
 export async function captureAll(
@@ -89,6 +124,7 @@ export async function captureAll(
         // as the logged-in user instead of 40 identical login walls.
         ...(opts.storageState ? { storageState: opts.storageState } : {}),
         reducedMotion: 'reduce',
+        ...(opts.insecure ? { ignoreHTTPSErrors: true } : {}),
       });
       contexts.set(key, ctx);
       return ctx;
@@ -168,7 +204,8 @@ export async function captureAll(
   };
 
   await Promise.all(Array.from({ length: Math.max(1, opts.concurrency) }, worker));
-  return { shots, authWalled: [...authWalled] };
+  const collapsed = dropIdenticalDarkShots(shots, opts.outDir);
+  return { shots: collapsed.shots, authWalled: [...authWalled], noDarkMode: collapsed.noDarkMode };
 }
 
 const AUTH_PATH = /(^|\/)(login|signin|sign-in|auth|register|signup|sign-up|account\/login)(\/|$)/i;

@@ -91,7 +91,7 @@ export function buildHtml(shots: Shot[], opts: SheetOptions): string {
         // Light before dark: it reads as the default state, then the variant.
         .sort(
           (a, b) =>
-            a.route.path.localeCompare(b.route.path) ||
+            a.route.path.localeCompare(b.route.path, undefined, { numeric: true }) ||
             (a.theme === b.theme ? 0 : a.theme === 'light' ? -1 : 1),
         );
       if (inDevice.length === 0) return '';
@@ -216,7 +216,7 @@ ${cells}
 <body>
   <header>
     <h1>${escapeHtml(opts.title)}</h1>
-    <div class="stats"><b>${routeCount}</b> routes · <b>${captured}</b> screens · <b>${seconds}s</b></div>
+    <div class="stats"><b>${routeCount}</b> route${routeCount === 1 ? '' : 's'} · <b>${captured}</b> screen${captured === 1 ? '' : 's'} · <b>${seconds}s</b></div>
   </header>
 ${cells}
   <footer>made with <b>npx everypage</b></footer>

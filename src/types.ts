@@ -42,6 +42,7 @@ export interface CaptureOptions {
   timeoutMs: number;
   storageState?: string;
   fullPage: boolean;
+  insecure?: boolean;
 }
 
 export const DEVICES: Record<string, Device> = {
