@@ -4,8 +4,26 @@ import type { Browser, Page } from 'playwright-core';
 import { isDynamic, normalizePath } from './discover.ts';
 import type { CaptureOptions, Route, Shot, Theme, Device } from './types.ts';
 
-function fileNameFor(route: Route, device: Device, theme: Theme): string {
-  const slug = route.path === '/' ? 'home' : route.path.replace(/^\//, '').replace(/[^a-zA-Z0-9]+/g, '-');
+/**
+ * Slugs must be unique per route, not merely readable: `/blog/post-1` and
+ * `/blog-post/1` both flatten to `blog-post-1`, and the second would
+ * overwrite the first — putting the wrong screenshot under the right
+ * label, which is the worst thing this tool could do.
+ */
+export function slugsFor(routes: Route[]): Map<string, string> {
+  const slugs = new Map<string, string>();
+  const used = new Set<string>();
+  for (const route of routes) {
+    const base = route.path === '/' ? 'home' : route.path.replace(/^\//, '').replace(/[^a-zA-Z0-9]+/g, '-');
+    let slug = base || 'page';
+    for (let n = 2; used.has(slug); n++) slug = `${base}-${n}`;
+    used.add(slug);
+    slugs.set(route.path, slug);
+  }
+  return slugs;
+}
+
+function fileNameFor(slug: string, device: Device, theme: Theme): string {
   return `${slug}--${device.name}--${theme}.png`;
 }
 
@@ -39,6 +57,7 @@ export async function captureAll(
   onProgress?: (done: number, total: number) => void,
 ): Promise<CaptureResult> {
   mkdirSync(opts.outDir, { recursive: true });
+  const slugs = slugsFor(routes);
 
   const jobs: { route: Route; device: Device; theme: Theme }[] = [];
   for (const route of routes) {
@@ -115,7 +134,7 @@ export async function captureAll(
         } else if (status >= 400) {
           shots[index] = { route, device, theme, skipped: `HTTP ${status}`, ms: Date.now() - started };
         } else {
-          const file = fileNameFor(route, device, theme);
+          const file = fileNameFor(slugs.get(route.path)!, device, theme);
           await page.screenshot({
             path: join(opts.outDir, file),
             fullPage: opts.fullPage,

@@ -184,3 +184,19 @@ test('html escapes route paths', () => {
   assert.ok(!html.includes('<script>alert(1)</script>'), 'must not inject raw html');
   assert.ok(html.includes('&lt;script&gt;'), 'should escape');
 });
+
+test('routes that flatten to the same slug get distinct filenames', async () => {
+  // /blog/post-1 and /blog-post/1 both slugify to "blog-post-1"; without
+  // disambiguation the second overwrites the first and a tile shows the
+  // wrong page under the right label.
+  const { slugsFor } = await import('../src/capture.ts');
+  const slugs = slugsFor([
+    { path: '/blog/post-1', source: 'crawl' },
+    { path: '/blog-post/1', source: 'crawl' },
+    { path: '/blog/post/1', source: 'crawl' },
+    { path: '/', source: 'crawl' },
+  ]);
+  const values = [...slugs.values()];
+  assert.equal(new Set(values).size, values.length, `collision in ${values.join(', ')}`);
+  assert.equal(slugs.get('/'), 'home');
+});

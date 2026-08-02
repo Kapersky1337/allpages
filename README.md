@@ -8,7 +8,7 @@ npx everypage localhost:3000
 
 ![every page of a demo app, as one contact sheet](./example.png)
 
-That whole sheet took **7.5 seconds**. No config, no list of URLs, no test file. It found the routes by itself.
+That whole sheet took **5.8 seconds**. No config, no list of URLs, no test file. It found the routes by itself.
 
 ## Why
 
@@ -42,7 +42,7 @@ npx everypage localhost:3000 --auth ./session.json
 ```
 
 ```
-✓ 36 screens in 7.7s
+✓ 36 screens in 5.4s
   2 pages redirected to a login (/dashboard, /settings)
   re-run with --auth <storageState.json> to shoot them as you
 ```
@@ -69,7 +69,7 @@ A map with a labeled hole beats a map that quietly lies.
 --out <dir>                 output directory (default: ./everypage)
 --max <n>                   cap discovered routes (default: 40)
 --full-page                 whole scroll height, not just the fold
---concurrency <n>           parallel browser contexts (default: 6)
+--concurrency <n>           parallel browser contexts (default: cpu count)
 --no-open                   don't open the sheet when it's done
 ```
 
@@ -89,14 +89,14 @@ The individual shots are plain files, and the sheet is one image. Instead of 44 
 - **Chromium only.** Safari and Firefox rendering differences aren't covered.
 - **Client-rendered apps** get a fixed settle window (network-idle, then 220ms). Apps that stream forever still shoot, but may catch a spinner — `--full-page` and a warm dev server help.
 - **Route discovery is best-effort.** Framework file conventions and links are what exist to read; a route reachable only through a form submission won't be found. `--routes` is the escape hatch.
-- **Above the fold by default.** Tiles are uniform so the sheet stays legible; `--full-page` captures everything at the cost of a much taller image.
+- **Above the fold by default.** `--full-page` captures the whole scroll height into `shots/`, but sheet tiles stay uniform and show the top of each page — a grid where one tile is ten times taller than its neighbour stops being readable.
 - Auth-walled and undiscoverable routes are listed, never silently dropped.
 
 ## Build
 
 ```bash
 npm install && npm run build
-npm test          # 15 tests
+npm test          # 16 tests
 node demo-app/server.js &                       # a small app with a login wall
 node dist/cli.js localhost:4173 --project demo-app
 ```
