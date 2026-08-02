@@ -1,0 +1,167 @@
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import type { Browser, Page } from 'playwright-core';
+import { isDynamic, normalizePath } from './discover.ts';
+import type { CaptureOptions, Route, Shot, Theme, Device } from './types.ts';
+
+function fileNameFor(route: Route, device: Device, theme: Theme): string {
+  const slug = route.path === '/' ? 'home' : route.path.replace(/^\//, '').replace(/[^a-zA-Z0-9]+/g, '-');
+  return `${slug}--${device.name}--${theme}.png`;
+}
+
+/** Wait for the page to stop moving, without hanging on polling apps. */
+async function settle(page: Page, timeoutMs: number): Promise<void> {
+  try {
+    await page.waitForLoadState('networkidle', { timeout: Math.min(timeoutMs, 4000) });
+  } catch {
+    // A page that never goes idle (websockets, polling) is normal; the
+    // domcontentloaded state already fired, so shoot what we have.
+  }
+  try {
+    await page.evaluate('document.fonts && document.fonts.ready');
+  } catch {
+    // fonts API unavailable or blocked; not worth failing a shot over
+  }
+  // Let CSS entrance animations finish so we don't catch a half-faded page.
+  await page.waitForTimeout(220);
+}
+
+export interface CaptureResult {
+  shots: Shot[];
+  /** Paths that redirected to a login-looking URL, deduped. */
+  authWalled: string[];
+}
+
+export async function captureAll(
+  browser: Browser,
+  routes: Route[],
+  opts: CaptureOptions,
+  onProgress?: (done: number, total: number) => void,
+): Promise<CaptureResult> {
+  mkdirSync(opts.outDir, { recursive: true });
+
+  const jobs: { route: Route; device: Device; theme: Theme }[] = [];
+  for (const route of routes) {
+    for (const device of opts.devices) {
+      for (const theme of opts.themes) jobs.push({ route, device, theme });
+    }
+  }
+
+  const shots: Shot[] = new Array(jobs.length);
+  const authWalled = new Set<string>();
+  let done = 0;
+  let cursor = 0;
+
+  const worker = async (): Promise<void> => {
+    // One context per worker, reused across jobs: launching a context per
+    // shot is the single biggest cost in a naive implementation.
+    const contexts = new Map<string, Awaited<ReturnType<Browser['newContext']>>>();
+    const contextFor = async (device: Device, theme: Theme) => {
+      const key = `${device.name}:${theme}`;
+      const existing = contexts.get(key);
+      if (existing) return existing;
+      const ctx = await browser.newContext({
+        viewport: { width: device.width, height: device.height },
+        deviceScaleFactor: device.scale,
+        isMobile: device.mobile,
+        hasTouch: device.mobile,
+        colorScheme: theme,
+        // Inherit the session the user already has, so private pages shoot
+        // as the logged-in user instead of 40 identical login walls.
+        ...(opts.storageState ? { storageState: opts.storageState } : {}),
+        reducedMotion: 'reduce',
+      });
+      contexts.set(key, ctx);
+      return ctx;
+    };
+
+    for (;;) {
+      const index = cursor++;
+      if (index >= jobs.length) break;
+      const { route, device, theme } = jobs[index]!;
+
+      if (isDynamic(route.path)) {
+        shots[index] = { route, device, theme, skipped: 'dynamic route, no example URL found' };
+        done++;
+        onProgress?.(done, jobs.length);
+        continue;
+      }
+
+      const started = Date.now();
+      const ctx = await contextFor(device, theme);
+      const page = await ctx.newPage();
+      try {
+        const target = new URL(route.path, opts.baseUrl).toString();
+        const response = await page.goto(target, {
+          waitUntil: 'domcontentloaded',
+          timeout: opts.timeoutMs,
+        });
+        await settle(page, opts.timeoutMs);
+
+        const landed = normalizePath(new URL(page.url()).pathname);
+        const redirected = landed !== route.path;
+        const status = response?.status() ?? 0;
+
+        if (redirected && looksLikeAuthWall(landed)) {
+          authWalled.add(route.path);
+          shots[index] = {
+            route,
+            device,
+            theme,
+            skipped: `redirected to ${landed}`,
+            redirectedTo: landed,
+            ms: Date.now() - started,
+          };
+        } else if (status >= 400) {
+          shots[index] = { route, device, theme, skipped: `HTTP ${status}`, ms: Date.now() - started };
+        } else {
+          const file = fileNameFor(route, device, theme);
+          await page.screenshot({
+            path: join(opts.outDir, file),
+            fullPage: opts.fullPage,
+            animations: 'disabled',
+          });
+          const title = (await page.title()).trim();
+          shots[index] = {
+            route,
+            device,
+            theme,
+            file,
+            ms: Date.now() - started,
+            ...(title ? { title } : {}),
+          };
+        }
+      } catch (error) {
+        shots[index] = {
+          route,
+          device,
+          theme,
+          skipped: error instanceof Error ? shortError(error.message) : 'failed',
+          ms: Date.now() - started,
+        };
+      } finally {
+        await page.close().catch(() => {});
+        done++;
+        onProgress?.(done, jobs.length);
+      }
+    }
+    for (const ctx of contexts.values()) await ctx.close().catch(() => {});
+  };
+
+  await Promise.all(Array.from({ length: Math.max(1, opts.concurrency) }, worker));
+  return { shots, authWalled: [...authWalled] };
+}
+
+const AUTH_PATH = /(^|\/)(login|signin|sign-in|auth|register|signup|sign-up|account\/login)(\/|$)/i;
+
+export function looksLikeAuthWall(path: string): boolean {
+  return AUTH_PATH.test(path);
+}
+
+function shortError(message: string): string {
+  const first = message.split('\n')[0] ?? message;
+  if (/Timeout|timeout/.test(first)) return 'timed out';
+  if (/ERR_CONNECTION_REFUSED|ECONNREFUSED/.test(first)) return 'connection refused';
+  if (/ERR_NAME_NOT_RESOLVED/.test(first)) return 'host not found';
+  return first.length > 60 ? `${first.slice(0, 57)}…` : first;
+}

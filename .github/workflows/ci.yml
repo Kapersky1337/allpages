@@ -1,0 +1,24 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - name: end-to-end against the demo app
+        run: |
+          node demo-app/server.js &
+          sleep 1
+          node dist/cli.js http://localhost:4173 --project demo-app --no-open --out /tmp/ep
+          test -f /tmp/ep/everypage.png
+          ls /tmp/ep/shots | wc -l

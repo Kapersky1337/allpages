@@ -1,0 +1,47 @@
+{
+  "name": "everypage",
+  "version": "0.1.0",
+  "description": "Every page of your app — phone and desktop, light and dark — as one image.",
+  "keywords": [
+    "screenshot",
+    "contact-sheet",
+    "playwright",
+    "nextjs",
+    "ai",
+    "agents",
+    "cli"
+  ],
+  "license": "MIT",
+  "author": "Zeel <zeel@layer3.xyz>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zeelatLayer3/everypage"
+  },
+  "type": "module",
+  "bin": {
+    "everypage": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "test": "node --test 'test/*.test.ts'",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "playwright-core": "^1.62.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  }
+}

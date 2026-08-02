@@ -1,0 +1,51 @@
+/** How a route was found — shown on the sheet so the map is honest. */
+export type RouteSource = 'crawl' | 'sitemap' | 'manifest' | 'given';
+
+export interface Route {
+  /** Path only, e.g. "/pricing". Always starts with "/". */
+  path: string;
+  source: RouteSource;
+  /** For dynamic routes: the template this concrete path came from. */
+  template?: string;
+}
+
+export type Theme = 'light' | 'dark';
+
+export interface Device {
+  name: string;
+  width: number;
+  height: number;
+  scale: number;
+  mobile: boolean;
+}
+
+/** One captured (or deliberately not captured) cell of the sheet. */
+export interface Shot {
+  route: Route;
+  device: Device;
+  theme: Theme;
+  file?: string;
+  /** Set when the cell has no image, with the reason to print on the sheet. */
+  skipped?: string;
+  /** The page redirected somewhere else — usually a login wall. */
+  redirectedTo?: string;
+  title?: string;
+  ms?: number;
+}
+
+export interface CaptureOptions {
+  baseUrl: string;
+  devices: Device[];
+  themes: Theme[];
+  outDir: string;
+  concurrency: number;
+  timeoutMs: number;
+  storageState?: string;
+  fullPage: boolean;
+}
+
+export const DEVICES: Record<string, Device> = {
+  phone: { name: 'phone', width: 390, height: 844, scale: 2, mobile: true },
+  desktop: { name: 'desktop', width: 1440, height: 900, scale: 1, mobile: false },
+  tablet: { name: 'tablet', width: 834, height: 1112, scale: 2, mobile: true },
+};
