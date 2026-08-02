@@ -3,22 +3,42 @@ on:
   push:
     branches: [main]
   pull_request:
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [20, 22, 24]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 24 }
+        with:
+          node-version: ${{ matrix.node }}
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
       - run: npm run build
       - run: npx playwright install --with-deps chromium
-      - name: end-to-end against the demo app
+      # Tests run .ts directly via type stripping (Node 22.6+)
+      - run: npm test
+        if: ${{ matrix.node != 20 }}
+      - name: end-to-end against the bundled demo app
         run: |
+          set -e
           node demo-app/server.js &
           sleep 1
           node dist/cli.js http://localhost:4173 --project demo-app --no-open --out /tmp/ep
           test -f /tmp/ep/everypage.png
-          ls /tmp/ep/shots | wc -l
+          echo "captured $(ls /tmp/ep/shots | wc -l) shots"
+      - name: end-to-end against a real website
+        run: |
+          set -e
+          node dist/cli.js https://example.com --no-open --max 2 --out /tmp/ep-web
+          test -f /tmp/ep-web/everypage.png
+      - name: refuses to write into a non-empty directory
+        run: |
+          mkdir -p /tmp/notempty && echo hi > /tmp/notempty/keep.txt
+          if node dist/cli.js https://example.com --routes / --no-open --out /tmp/notempty; then
+            echo "should have refused"; exit 1
+          fi
+          test -f /tmp/notempty/keep.txt
