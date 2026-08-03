@@ -48,5 +48,8 @@
   "bugs": {
     "url": "https://github.com/kapersky1337/everypage/issues"
   },
-  "homepage": "https://github.com/kapersky1337/everypage#readme"
+  "homepage": "https://github.com/kapersky1337/everypage#readme",
+  "publishConfig": {
+    "access": "public"
+  }
 }

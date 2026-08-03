@@ -6,7 +6,7 @@
 npx everypage https://yoursite.com
 ```
 
-![every page of a demo app, as one contact sheet](https://raw.githubusercontent.com/kapersky1337/everypage/main/example.png)
+![Contact sheet: every page of an app shown as a grid of phone and desktop screenshots in light and dark](https://raw.githubusercontent.com/kapersky1337/everypage/main/example.png)
 
 <sub>The bundled demo app: 12 routes, 44 screens, 5.9s — including two pages behind a login. Run it yourself with `node demo-app/server.js`.</sub>
 
@@ -22,12 +22,18 @@ Neither has your agent. When Claude or Cursor wants to look at your app, it scre
 
 ## Install
 
+There is nothing to install.
+
 ```bash
-npx everypage https://yoursite.com    # nothing to install
-npm i -g everypage                    # or keep it around
+npx everypage https://yoursite.com
 ```
 
-Uses Playwright's Chromium if you have it, otherwise the Chrome or Edge already on your machine. If neither exists: `npx playwright install chromium`.
+That is the whole setup. It drives Playwright's Chromium if you already have it, otherwise the Chrome or Edge already on your machine, and only if neither exists does it fetch Chromium once (~120 MB, announced before it starts). No config file, no account, no API key.
+
+```bash
+npm i -g everypage        # or keep it around
+npm i everypage           # or use it as a library
+```
 
 ## It works on anything with a URL
 

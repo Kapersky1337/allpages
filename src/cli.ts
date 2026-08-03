@@ -2,7 +2,7 @@
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { cpus } from 'node:os';
 import { resolve } from 'node:path';
-import { chromium } from 'playwright-core';
+import { chromium, type Browser } from 'playwright-core';
 import { captureAll } from './capture.ts';
 import { crawlWithBrowser } from './crawl.ts';
 import { exportFigma } from './figma.ts';
@@ -325,17 +325,23 @@ const color = process.stdout.isTTY === true && process.env['NO_COLOR'] === undef
 const paint = (s: string, c: string): string => (color ? `${c}${s}${RESET}` : s);
 
 /**
+ * Find a browser to drive, and if there is none, fetch one.
+ *
  * playwright-core deliberately ships no browsers, so a bare `npx everypage`
- * would fail on a clean machine. Fall back to the Chrome or Edge the user
- * already has before telling them to install anything.
+ * on a clean machine would otherwise end in "now run this other command".
+ * The order is cheapest-first: a Playwright Chromium if it is already
+ * there, then the Chrome or Edge nearly every machine already has, and
+ * only then a one-time download. The install is loud, because spending
+ * 100MB of somebody's bandwidth silently is not acceptable.
  */
-async function launchBrowser() {
+async function launchBrowser(): Promise<Browser> {
   const launchArgs = ['--force-color-profile=srgb', '--hide-scrollbars'];
   const attempts: { channel?: string; label: string }[] = [
     { label: "Playwright's Chromium" },
     { channel: 'chrome', label: 'Google Chrome' },
     { channel: 'msedge', label: 'Microsoft Edge' },
   ];
+
   const problems: string[] = [];
   for (const attempt of attempts) {
     try {
@@ -344,13 +350,56 @@ async function launchBrowser() {
         ...(attempt.channel ? { channel: attempt.channel } : {}),
       });
     } catch (error) {
-      problems.push(`${attempt.label}: ${error instanceof Error ? error.message.split('\n')[0] : 'failed'}`);
+      problems.push(`${attempt.label}: ${error instanceof Error ? (error.message.split('\n')[0] ?? '') : 'failed'}`);
     }
   }
+
+  // Nothing on the machine — fetch Chromium once, then retry.
+  if (await installChromium()) {
+    try {
+      return await chromium.launch({ args: launchArgs });
+    } catch (error) {
+      problems.push(`after install: ${error instanceof Error ? (error.message.split('\n')[0] ?? '') : 'failed'}`);
+    }
+  }
+
   fail(
-    `couldn't start a browser. Install one once with:\n\n    npx playwright install chromium\n\n` +
+    `couldn't start a browser, and couldn't install one.\n\n` +
+      `  Install it manually with:  npx playwright install chromium\n\n` +
       `  tried — ${problems.join(' · ')}`,
   );
+}
+
+/** Download Chromium via the Playwright CLI. Returns whether it succeeded. */
+async function installChromium(): Promise<boolean> {
+  const { spawn } = await import('node:child_process');
+  const version = playwrightVersion();
+  process.stdout.write(
+    `  ${paint('no browser found — downloading Chromium once (~120 MB)', BOLD)}\n` +
+      `  ${paint('this happens on first run only', DIM)}\n\n`,
+  );
+  return new Promise((resolve) => {
+    const child = spawn(
+      'npx',
+      ['--yes', version ? `playwright@${version}` : 'playwright', 'install', 'chromium'],
+      { stdio: ['ignore', 'inherit', 'inherit'], shell: process.platform === 'win32' },
+    );
+    child.on('error', () => resolve(false));
+    child.on('close', (code) => {
+      process.stdout.write('\n');
+      resolve(code === 0);
+    });
+  });
+}
+
+/** Match the installer to the playwright-core we ship against. */
+function playwrightVersion(): string | null {
+  try {
+    const url = new URL('../node_modules/playwright-core/package.json', import.meta.url);
+    return (JSON.parse(readFileSync(url, 'utf8')) as { version?: string }).version ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function main(): Promise<void> {
