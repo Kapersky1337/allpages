@@ -332,7 +332,7 @@ The sheet is a single image and the shots are ordinary files, so instead of 54 s
 "three of these have the wrong header, and /pricing is broken on mobile. fix them."
 ```
 
-## Honest limits
+## Limits
 
 - **Chromium only**, so Safari and Firefox rendering differences won't show up here.
 - **Pages you can only reach by doing something** are invisible to it. If a route is only reachable by submitting a form or clicking a JS handler, no crawler will find it, and `--routes` is your way in.

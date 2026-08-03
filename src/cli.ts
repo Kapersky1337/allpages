@@ -6,7 +6,7 @@ import { chromium, type Browser } from 'playwright-core';
 import { captureAll } from './capture.ts';
 import { crawlWithBrowser } from './crawl.ts';
 import { exportFigma } from './figma.ts';
-import { buildFilmSvg } from './film.ts';
+import { buildFilmSvg, effectivePacing } from './film.ts';
 import { httpHeaders } from './identity.ts';
 import { outDirFor, selectRoutes } from './api.ts';
 import {
@@ -293,11 +293,11 @@ function parseArgs(argv: string[]): Args {
         i++;
         break;
       case '--hold':
-        args.filmHold = Math.max(400, Math.floor(Number(need(i, '--hold'))) || 1600);
+        { const v = Math.floor(Number(need(i, '--hold'))); if (v > 0) args.filmHold = v; }
         i++;
         break;
       case '--slide':
-        args.filmSlide = Math.max(150, Math.floor(Number(need(i, '--slide'))) || 650);
+        { const v = Math.floor(Number(need(i, '--slide'))); if (v > 0) args.filmSlide = v; }
         i++;
         break;
       case '--bg':
@@ -639,7 +639,8 @@ async function main(): Promise<void> {
       writeFileSync(filmPath, svg);
 
       const seconds = ((Date.now() - started) / 1000).toFixed(1);
-      const perPageMs = (args.filmHold ?? 1600) + (args.filmSlide ?? 650);
+      const pacing = effectivePacing(args.filmHold, args.filmSlide);
+      const perPageMs = pacing.holdMs + pacing.slideMs;
       const loopSeconds = ((captured.length * perPageMs) / 1000).toFixed(0);
       process.stdout.write(
         `  ${paint('✓', GREEN)} ${paint(String(captured.length), BOLD)} page${captured.length === 1 ? '' : 's'} → a ${paint(`${loopSeconds}s`, BOLD)} loop in ${paint(`${seconds}s`, BOLD)}\n` +

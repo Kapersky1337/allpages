@@ -40,6 +40,26 @@ interface Frame {
   mobile: boolean;
 }
 
+/**
+ * Pacing, in one place so the CLI's "a 20s loop" claim and the SVG's actual
+ * timeline can never disagree. The floors exist because a zero-length hold
+ * strobes and a zero-length slide teleports.
+ */
+export const PACING = {
+  holdMs: 1600,
+  slideMs: 650,
+  minHoldMs: 400,
+  minSlideMs: 150,
+} as const;
+
+/** The pacing a film will actually use, floors applied. */
+export function effectivePacing(holdMs?: number, slideMs?: number): { holdMs: number; slideMs: number } {
+  return {
+    holdMs: Math.max(PACING.minHoldMs, holdMs ?? PACING.holdMs),
+    slideMs: Math.max(PACING.minSlideMs, slideMs ?? PACING.slideMs),
+  };
+}
+
 const TEXT = '#e8e8ea';
 const DIM_TEXT = '#77777d';
 const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
@@ -84,8 +104,7 @@ export function cameraKeyframes(
 export function buildFilmSvg(shots: Shot[], opts: FilmOptions): string {
   const width = opts.width ?? 1280;
   const height = opts.height ?? 720;
-  const holdMs = Math.max(400, opts.holdMs ?? 1600);
-  const slideMs = Math.max(150, opts.slideMs ?? 650);
+  const { holdMs, slideMs } = effectivePacing(opts.holdMs, opts.slideMs);
   const bg = escapeXml(opts.bg ?? '#0b0b0d');
   const accent = escapeXml(opts.accent ?? '#34d399');
 
