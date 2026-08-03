@@ -10,25 +10,25 @@ npx allpages https://yoursite.com
 
 <sub>The bundled demo app: 12 routes, 54 screens, 7.8s, including two pages behind a login. Run it yourself with `node demo-app/server.js`.</sub>
 
-No config. No list of URLs. No test file. It finds the pages itself.
+You don't give it a list of URLs or write a config file. It works out which pages the site has and shoots all of them.
 
 ## Why
 
-You built a dozen pages over a few weeks and you have never seen them next to each other. You definitely never opened half of them on a phone.
+If you've built a dozen pages over a few weeks, you've probably never seen them side by side, and there's a good chance you haven't opened half of them on a phone at all.
 
-Neither has your agent. When Claude or Cursor wants to look at your app, it screenshots one page at a time, burning a tool call and a thousand vision tokens per screen.
+Your agent hasn't either. When Claude or Cursor wants to look at your app it screenshots one page at a time, spending a tool call and a thousand or so vision tokens on each screen.
 
-`allpages` shoots all of them at once and hands you a single image. Look at it yourself, then drag it into your agent and say **"make these consistent."**
+allpages shoots them all in one go and gives you a single image. Look at it yourself, then drag it into your agent and say "make these consistent".
 
 ## Install
 
-There is nothing to install.
+You don't have to install anything to try it:
 
 ```bash
 npx allpages https://yoursite.com
 ```
 
-That is the whole setup. It drives Playwright's Chromium if you already have it, otherwise the Chrome or Edge already on your machine, and only if neither exists does it fetch Chromium once (~120 MB, announced before it starts). No config file, no account, no API key.
+It looks for a browser in the order that costs you least: Playwright's Chromium if it's already on your machine, then the Chrome or Edge you almost certainly have. Only if it finds neither does it download Chromium (~120 MB), and it tells you before it starts. There's no config file, no account and no API key.
 
 ```bash
 npm i -g allpages        # or keep it around
@@ -37,7 +37,7 @@ npm i allpages           # or use it as a library
 
 ## A real site, start to finish
 
-`astro.build` is a normal public website: 184 pages, a client-rendered docs section, a cookie banner, lazy images.
+Here it is against `astro.build`, which is a fairly typical public site: 184 pages, a client-rendered docs section, a cookie banner and lazy images.
 
 ```bash
 npx allpages https://astro.build
@@ -48,12 +48,21 @@ npx allpages https://astro.build
   184 pages, 23 layouts, shooting the 20 biggest (--max 23 for every layout)
   20 routes × 3 sizes × 2 themes = 120 screens
 
-  ✓ 120 screens in 40.0s → allpages/allpages.png
+  ✓ 120 screens in 40.0s → allpages/astro.build/allpages.png
 ```
 
 ![Contact sheet of astro.build: 20 layouts across phone, tablet and desktop in light and dark](https://raw.githubusercontent.com/kapersky1337/allpages/main/example-astro.png)
 
-Nothing was configured and nothing was guessed. The 184 pages collapsed to the 23 shapes the site actually has, tiles that stand for a family say so (`one of 23 · /blog/2`), and every URL still landed in `allpages/routes.txt`.
+Those 184 pages are really 23 distinct layouts, so that's what you get a tile for. Where a tile represents a whole family of pages it says so underneath (`one of 23 · /blog/2`), and the full list of 184 URLs is written to `allpages/astro.build/routes.txt` if you want to check what was left out.
+
+Results are filed per site, so you can try a few in a row and still have all of them:
+
+```
+allpages/
+  astro.build/     allpages.png  shots/  routes.txt
+  linear.app/      allpages.png  shots/  routes.txt
+  localhost-3000/  allpages.png  shots/  routes.txt
+```
 
 ## It works on anything with a URL
 
@@ -63,7 +72,7 @@ npx allpages localhost:3000              # your dev server
 npx allpages https://staging.acme.dev    # a preview deploy
 ```
 
-Pages are found from whatever the site actually offers, all merged:
+Pages come from whatever the site happens to offer, and all four sources are merged:
 
 | Source | What it catches |
 |---|---|
@@ -72,31 +81,31 @@ Pages are found from whatever the site actually offers, all merged:
 | **Crawling links** | anything reachable from the homepage |
 | **Crawling *in a browser*** | links that only exist after JavaScript runs |
 
-That last row is the one that makes this work everywhere. On a client-rendered app (Vite, CRA, React Router) the HTML is an empty `<div id="root">` and the links appear when the framework boots. allpages notices the HTML had nothing in it and looks again in a real browser.
+That last row is what makes this work on client-rendered apps. With Vite, CRA or React Router the served HTML is an empty `<div id="root">` and the links only exist once the framework boots, so allpages notices it got nothing useful and crawls again in a real browser.
 
-## A big site is not a big design
+## Big sites
 
-A 267-page marketing site is usually about nine layouts and a few hundred blog posts. Shooting twenty arbitrary pages is an apology. Shooting **one page per layout** is a truer picture of the site than all 267 tiles would be, and it's free, because the grouping comes from the URLs before a browser opens.
+A 267-page marketing site is usually nine layouts and a few hundred blog posts. Twenty arbitrary pages off the top of that isn't much use, so above 25 pages allpages groups URLs by shape and shoots one page from each layout instead. The grouping happens before any browser opens, so it costs nothing.
 
 ```
 $ npx allpages https://acme.com
 
   267 pages, 9 layouts, shooting one page from each
-  ✓ 54 screens in 7.3s → allpages/allpages.png
+  ✓ 54 screens in 7.3s → allpages/acme.com/allpages.png
   /blog/:slug 186 pages · /customers/:slug 74 pages
   --only '/blog/*' to open one up · --all for every page
 ```
 
-Tiles say what they stand for:
+Each tile says what it represents:
 
 ```
 /blog/:slug
 one of 186 · /blog/post-1
 ```
 
-When a site has more layouts than tiles to spend, the biggest families win: a layout standing for 186 pages earns its place ahead of a one-off legal page.
+If a site has more layouts than there are tiles to show them in, the ones covering the most pages get priority, so a layout standing for 186 blog posts is kept ahead of a one-off legal page.
 
-Nothing is hidden. Every URL lands in `allpages/routes.txt`, with a `*` next to the ones in the sheet:
+Either way you can see what was left out. Every URL is written to `routes.txt`, with a `*` marking the ones that made the sheet:
 
 ```
 # acme.com · 267 pages, 9 shot · 2026-08-03
@@ -107,24 +116,24 @@ Nothing is hidden. Every URL lands in `allpages/routes.txt`, with a `*` next to 
   /blog/post-3
 ```
 
-**No prompt, ever.** You can't choose which of 267 pages matter *before* you've seen them, which is why you ran the command. So the choice comes after the picture, as the exact line to copy, printed at the moment it's useful. It also means allpages never blocks: it's a pure function of its arguments, safe inside CI and inside an agent's subshell.
+allpages never stops to ask you a question. Partly that's because you can't sensibly pick which of 267 pages matter until you've seen them, which is the reason you ran the command. Mostly it's practical: an interactive prompt would hang in CI and inside an agent's subshell. So the choice is offered afterwards, printed as a line you can copy.
 
-Below 25 pages nothing changes. No grouping, no extra output, same magic as a small app.
+Under 25 pages none of this kicks in and every page gets its own tile.
 
 ## What real websites throw at you
 
-A localhost demo needs none of this. A real site needs all of it, and without it every tile is a cookie banner over a grey box.
+None of this matters against a localhost demo. It matters a lot against a live site, where the naive version of this tool gives you forty tiles of a cookie banner over a grey box.
 
-- **Bot checks.** Playwright's Chromium introduces itself as `HeadlessChrome`, and a default Cloudflare rule answers that with a challenge page instead of your site. allpages presents itself as the Chrome it actually is, so real sites render. Nothing is spoofed beyond that: a site that genuinely challenges gets reported as blocked, with `--auth` as the way through.
-- **Cookie and consent dialogs** are clicked away: OneTrust, Cookiebot, Didomi, Usercentrics, Osano, TrustArc, HubSpot, plus a text-matched fallback that only ever clicks short, button-shaped elements. (Clicking beats hiding: consent walls often freeze scrolling until you answer.)
-- **Chat widgets and floating overlays** (Intercom, Drift, Crisp, reCAPTCHA badges) are hidden, so they don't appear in all forty tiles.
-- **Lazy images** are loaded by scrolling the page before the shot.
-- **`robots.txt` is respected.** `--no-robots` if it's your own site and you don't care.
-- **Anything else:** `--hide '.promo-bar, #newsletter'`, `--wait '.chart-loaded'`, `--delay 500`.
+- **Bot checks.** Playwright's Chromium introduces itself as `HeadlessChrome`, and a default Cloudflare rule answers that with a challenge page instead of your site. allpages identifies itself as the Chrome it actually is, which is enough for the sites that were only ever filtering on that string. It doesn't go further: if a site genuinely challenges it, you get told it was blocked and pointed at `--auth`.
+- **Cookie and consent dialogs** are clicked away, covering OneTrust, Cookiebot, Didomi, Usercentrics, Osano, TrustArc and HubSpot, plus a text-matched fallback that only ever clicks short, button-shaped elements. Clicking works better than hiding here, since consent walls often freeze scrolling until you answer them.
+- **Chat widgets and floating overlays** like Intercom, Drift, Crisp and reCAPTCHA badges are hidden, so they don't turn up in every tile.
+- **Lazy images** get loaded by scrolling the page before the shot.
+- **`robots.txt` is respected.** Use `--no-robots` on your own sites if you'd rather it wasn't.
+- **Anything else** is up to you: `--hide '.promo-bar, #newsletter'`, `--wait '.chart-loaded'`, `--delay 500`.
 
 ## Pages behind a login
 
-Without a session, half your app redirects and you get a sheet of identical login screens. allpages detects the redirect, tells you which routes hit it, and takes a session:
+Without a session half your app redirects and you end up with a sheet of identical login screens. allpages spots the redirect, tells you which routes hit it, and will take a session if you give it one:
 
 ```
 ✓ 54 screens in 5.4s
@@ -137,18 +146,18 @@ npx playwright codegen --save-storage=session.json   # log in once
 npx allpages localhost:3000 --auth session.json     # → 72 screens
 ```
 
-The same flag is the answer to a site that challenges automated browsers: log in once yourself, and allpages reuses that session instead of trying to talk its way past anything.
+The same flag is the answer to a site that challenges automated browsers. You log in once yourself and allpages reuses the session, rather than trying to talk its way past anything.
 
 ## Dynamic routes
 
-`/orders/[id]` is not a URL, and screenshotting it literally puts a 404 in your sheet. allpages matches the template against real links found while crawling, so it shoots `/orders/42` instead. If it never finds a real one, the route appears in a **not captured** strip with the reason:
+`/orders/[id]` isn't a URL, and screenshotting it literally would just put a 404 in your sheet. So allpages matches the template against real links it found while crawling and shoots `/orders/42` instead. When it can't find a real example, the route shows up in a **not captured** strip along with the reason:
 
 ```
 NOT CAPTURED  3 routes
 /dashboard  redirected to /login    /orders/[id]  dynamic route, no example URL found
 ```
 
-A map with a labeled hole beats a map that quietly lies.
+The point is that a gap in the sheet is always labelled, so you're never left assuming a page was fine when it simply never loaded.
 
 ## Options
 
@@ -181,9 +190,9 @@ A map with a labeled hole beats a map that quietly lies.
 --no-open                   don't open the sheet when it's done
 ```
 
-You get `allpages/allpages.png` (the sheet) and `allpages/shots/` (each screenshot, named `route--device--theme.png`).
+A run leaves you with `allpages/<site>/allpages.png` (the sheet) and `allpages/<site>/shots/` (each screenshot, named `route--device--theme.png`). Pass `--out` if you want to put them somewhere specific.
 
-Three sizes is the default because a layout breaks at the size nobody remembered to open, and that size is usually tablet. `--devices phone,desktop` if you want it lighter.
+All three sizes are on by default because layouts tend to break at whichever width nobody thought to open, and that's usually the tablet. Use `--devices phone,desktop` if you want runs to be quicker.
 
 ## Export to Figma
 
@@ -191,24 +200,24 @@ Three sizes is the default because a layout breaks at the size nobody remembered
 npx allpages figma https://yoursite.com
 ```
 
-Same discovery, vector output. You get `allpages.svg`, every page side by side as a group, plus `pages/*.svg` for importing one at a time. Drag either into Figma.
+Same discovery, vector output instead of pixels. You get `allpages.svg` with every page side by side as a group, plus `pages/*.svg` if you'd rather import them one at a time. Drag either into Figma. It writes into the same per-site folder as the sheet, so you can run both.
 
 ```
   ✓ 11 pages · 1,240 editable layers in 6.2s
-    allpages/allpages.svg  ← drag into Figma
-    allpages/pages/ one SVG per page
+    allpages/yoursite.com/allpages.svg  ← drag into Figma
+    allpages/yoursite.com/pages/ one SVG per page
 ```
 
-**These are real layers, not a screenshot in a wrapper.** Text arrives as editable text with its own font, size, weight and colour. Boxes arrive as rects with their real corner radii and borders. Inline SVG icons are carried through as vector, so a logo stays a logo. Only genuinely raster things (photos, `<img>`) stay raster.
+What you get are real layers rather than a screenshot in a wrapper. Text comes through as editable text with its own font, size, weight and colour; boxes come through as rects with their actual corner radii and borders; inline SVG icons stay vector, so a logo is still a logo. Only things that were genuinely raster to begin with, like photos and `<img>` tags, stay raster.
 
-It also skips what shouldn't be there: screen-reader-only text, `display:none`, off-screen elements, and CSS-mask icons that would otherwise import as black squares. Font stacks are resolved to the first *real* family, because Figma can't match `ui-sans-serif`.
+A few things are deliberately left out because they'd only get in your way: screen-reader-only text, anything `display:none`, off-screen elements, and CSS-mask icons that would otherwise land in Figma as black squares. Font stacks are resolved down to the first real family, since Figma has no idea what `ui-sans-serif` means.
 
 ```bash
 npx allpages figma localhost:3000 --devices phone   # mobile canvas
 npx allpages figma https://site.com --only '/blog/*' --max 5
 ```
 
-Fidelity is high but not perfect. Gradients, shadows, transforms and pseudo-elements aren't reproduced. It's for taking a real site into Figma to redesign, not for pixel-exact archival. Use the PNG sheet for that.
+Fidelity is good but not perfect: gradients, shadows, transforms and pseudo-elements don't survive the trip. This is meant for pulling a real site into Figma to redesign it, not for archiving one exactly. The PNG sheet is better for that.
 
 ## Use it as a library
 
@@ -223,7 +232,7 @@ const { sheet, shots, routes, authWalled, botChecked } = await allpages({
   url: 'https://yoursite.com',
   devices: ['phone', 'tablet', 'desktop'],
   themes: ['light', 'dark'],
-  outDir: './snapshots',
+  outDir: './snapshots',   // defaults to allpages/<site>
   max: 20,
   only: ['/blog/*'],       // optional: same globs as the CLI
   group: true,             // one page per layout above 24 pages
@@ -236,7 +245,7 @@ console.log(routes.map((r) => r.path));      // what it decided to shoot
 console.log(routes.filter((r) => r.standsFor));  // tiles standing for a family
 ```
 
-Pass an existing `browser` to reuse one you already launched, or `skipSheet: true` to get only the individual shots. `discoverRoutes()` and `selectRoutes()` are exported separately if you just want the list of pages, or the decision about which of them matter.
+Pass an existing `browser` to reuse one you've already launched, or `skipSheet: true` if you only want the individual shots. `discoverRoutes()`, `selectRoutes()` and `outDirFor()` are exported separately, for when you want the list of pages, the decision about which of them matter, or just the default folder name.
 
 ## In CI
 
@@ -256,7 +265,7 @@ Point it at a preview deploy and upload the sheet as an artifact, so every PR ge
 
 ## For agents
 
-The sheet is one image; the shots are plain files. Instead of 54 screenshot tool calls:
+The sheet is a single image and the shots are ordinary files, so instead of 54 screenshot tool calls you get one attachment:
 
 ```
 > drag allpages.png into Claude Code
@@ -265,27 +274,27 @@ The sheet is one image; the shots are plain files. Instead of 54 screenshot tool
 
 ## Honest limits
 
-- **Chromium only.** Safari and Firefox rendering differences aren't covered.
-- **Navigation without links stays invisible.** If a page is only reachable by submitting a form or clicking a JS handler, no crawler finds it. `--routes` is the escape hatch.
-- **Client-rendered pages** get a settle window (network-idle, then a short pause). Apps that stream forever still shoot, but may catch a spinner; `--wait` and `--delay` fix it.
-- **Above the fold by default.** `--full-page` captures the whole scroll height into `shots/`, but sheet tiles stay uniform and show the top of each page, because a grid where one tile is ten times taller than its neighbour stops being readable.
-- **No dark mode?** If every dark shot is byte-identical to its light one, the dark tiles are dropped and the sheet says so.
-- **A site that really wants to block scripts still can.** allpages says so plainly and stops, rather than pretending to be something it isn't.
-- Auth-walled and undiscoverable routes are listed, never silently dropped.
-- allpages only ever writes `allpages.png`, `shots/` and `routes.txt`. If `--out` points at a directory with anything else in it, it refuses rather than deleting your files.
-- Be a good citizen on sites you don't own: `robots.txt` is respected by default and the crawl is depth- and count-limited.
+- **Chromium only**, so Safari and Firefox rendering differences won't show up here.
+- **Pages you can only reach by doing something** are invisible to it. If a route is only reachable by submitting a form or clicking a JS handler, no crawler will find it, and `--routes` is your way in.
+- **Client-rendered pages** get a settle window: network-idle, then a short pause. Apps that stream indefinitely still get shot but may catch a spinner, which `--wait` and `--delay` usually solve.
+- **Tiles show the top of each page.** `--full-page` captures the whole scroll height into `shots/`, but the sheet keeps tiles uniform, because a grid where one tile is ten times taller than its neighbour is hard to read.
+- **If a site has no dark mode**, and every dark shot comes out byte-identical to its light one, the dark tiles are dropped and the sheet tells you why.
+- **A site that really wants to keep scripts out can.** You'll be told that's what happened instead of getting a sheet of error pages.
+- Routes behind a login, or that couldn't be reached, are listed rather than quietly dropped.
+- Inside an output folder allpages only writes `allpages.png`, `shots/`, `routes.txt`, `allpages.svg` and `pages/`. If it finds anything else there it stops instead of deleting your files.
+- On sites you don't own it tries to behave: `robots.txt` is respected by default, and the crawl is limited by both depth and count.
 
 ## Using this responsibly
 
-allpages drives a real browser against whatever URL you give it. On your own sites that's just tooling. On sites you don't own, a few things are worth knowing, and the defaults are set so you don't have to think about them:
+allpages drives a real browser against whatever URL you hand it. Against your own sites that's just tooling. Against sites you don't own there are a few things worth knowing, and the defaults are chosen so you mostly don't have to think about them:
 
-- **`robots.txt` is respected by default.** `--no-robots` exists for your own sites; using it elsewhere is on you.
-- **The crawl is bounded:** same-origin only, two link levels, 500 pages of discovery, so it behaves like a person browsing rather than a scraper.
-- **Nothing is uploaded.** Every file stays on your machine; there is no account, no telemetry, no server.
-- **Cookie dialogs are clicked** so pages render normally. If you'd rather not interact with a site at all, `--no-banners`. Sessions live only for the run.
-- **Bot checks are reported, not defeated.** allpages identifies itself as the Chrome it is and stops there. It does not solve CAPTCHAs, forge fingerprints or rotate identities. If a site says no, the answer is to ask the owner, or to use `--auth` with a session you opened yourself.
-- **What you capture belongs to the site's owner.** Screenshots and SVG exports contain someone else's design, content and trademarks. allpages gives you no rights to them, so check you have permission before capturing, republishing, or shipping a design derived from a site you don't own.
-- Many sites' terms restrict automated access. That agreement is between you and them.
+- **`robots.txt` is respected by default.** `--no-robots` is there for your own sites; using it elsewhere is your call to justify.
+- **The crawl is bounded** to the same origin, two levels of links and 500 pages of discovery, so it behaves more like someone browsing than a scraper.
+- **Nothing is uploaded anywhere.** Every file stays on your machine. There's no account, no telemetry and no server involved.
+- **Cookie dialogs get clicked** so pages render normally. Use `--no-banners` if you'd rather not interact with the site at all. Sessions last only for the run.
+- **Bot checks are reported rather than defeated.** allpages identifies itself as the Chrome it is and leaves it there. It won't solve CAPTCHAs, forge fingerprints or rotate identities. If a site says no, either ask its owner or use `--auth` with a session you opened yourself.
+- **Whatever you capture still belongs to the site's owner.** Screenshots and SVG exports contain someone else's design, content and trademarks, and allpages gives you no rights to any of it. Check you have permission before you capture, republish, or ship a design derived from a site you don't own.
+- Plenty of sites restrict automated access in their terms. That agreement is between you and them.
 
 ## Licensing
 

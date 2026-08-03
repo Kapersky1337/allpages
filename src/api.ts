@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { Browser } from 'playwright-core';
 import { captureAll } from './capture.ts';
 import { crawlWithBrowser } from './crawl.ts';
@@ -26,7 +26,7 @@ export interface AllpagesOptions {
   routes?: string[];
   /** Where the app's source lives, for reading framework route files. */
   projectDir?: string;
-  /** Output directory. Receives `allpages.png` and `shots/`. */
+  /** Output directory. Defaults to `allpages/<site>`. */
   outDir?: string;
   /** Cap on discovered routes (ignored when `routes` is given). */
   max?: number;
@@ -106,6 +106,18 @@ export function normalizeUrl(input: string): string {
   const url = /^https?:\/\//.test(input) ? input : `http://${input}`;
   new URL(url); // throws on garbage
   return url;
+}
+
+/**
+ * The default output directory for a site: `allpages/linear.app`. Shooting
+ * three sites in a row should leave you with three sets of results rather
+ * than one that keeps getting overwritten. Ports are part of the name
+ * because localhost:3000 and localhost:4173 are usually two different apps.
+ */
+export function outDirFor(url: string): string {
+  const { hostname, port } = new URL(normalizeUrl(url));
+  const name = port ? `${hostname}-${port}` : hostname;
+  return join('allpages', name.replace(/[^a-zA-Z0-9.-]/g, '-'));
 }
 
 /**
@@ -239,7 +251,7 @@ function byRepresentativeness(a: Route, b: Route): number {
 export async function allpages(options: AllpagesOptions): Promise<AllpagesResult> {
   const started = Date.now();
   const url = normalizeUrl(options.url);
-  const outDir = resolve(options.outDir ?? 'allpages');
+  const outDir = resolve(options.outDir ?? outDirFor(url));
   const devices = (options.devices ?? ['phone', 'tablet', 'desktop']).map(toDevice);
   const themes = options.themes ?? (['light', 'dark'] as Theme[]);
   const max = options.max ?? 20;

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GROUP_ABOVE, selectRoutes } from '../src/api.ts';
+import { join } from 'node:path';
+import { GROUP_ABOVE, outDirFor, selectRoutes } from '../src/api.ts';
 import type { Route } from '../src/types.ts';
 
 const routes = (...paths: string[]): Route[] => paths.map((path) => ({ path, source: 'crawl' as const }));
@@ -144,4 +145,14 @@ test('an ungrouped site reports layouts equal to its pages', () => {
   const { considered, layouts } = selectRoutes(routes('/', '/about'), defaults);
   assert.equal(considered, 2);
   assert.equal(layouts, 2);
+});
+
+test('every site gets its own folder', () => {
+  assert.equal(outDirFor('https://linear.app'), join('allpages', 'linear.app'));
+  assert.equal(outDirFor('https://astro.build/blog'), join('allpages', 'astro.build'));
+  // Two dev servers on one machine are almost always two different apps.
+  assert.equal(outDirFor('localhost:3000'), join('allpages', 'localhost-3000'));
+  assert.notEqual(outDirFor('localhost:3000'), outDirFor('localhost:4173'));
+  // Nothing in a directory name should be able to escape the directory.
+  assert.ok(!outDirFor('http://a/../../etc').includes('..'));
 });

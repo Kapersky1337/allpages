@@ -1,4 +1,4 @@
-export { discoverRoutes, allpages, normalizeUrl, selectRoutes, GROUP_ABOVE } from './api.ts';
+export { discoverRoutes, allpages, normalizeUrl, outDirFor, selectRoutes, GROUP_ABOVE } from './api.ts';
 export type {
   DiscoverResult,
   AllpagesOptions,

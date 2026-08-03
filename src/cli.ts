@@ -7,7 +7,7 @@ import { captureAll } from './capture.ts';
 import { crawlWithBrowser } from './crawl.ts';
 import { exportFigma } from './figma.ts';
 import { httpHeaders } from './identity.ts';
-import { selectRoutes } from './api.ts';
+import { outDirFor, selectRoutes } from './api.ts';
 import {
   mergeRoutes,
   normalizePath,
@@ -47,7 +47,7 @@ Options
                               shoot as the logged-in you
   --routes /a,/b              shoot exactly these, skip discovery
   --project <dir>             where your app's code lives (default: cwd)
-  --out <dir>                 output directory (default: ./allpages)
+  --out <dir>                 output directory (default: allpages/<site>)
   --max <n>                   cap pages shot (default: 20)
   --all                       shoot every page, not one per layout
   --only <glob,glob>          only pages matching these (e.g. '/blog/*')
@@ -107,21 +107,27 @@ interface Args {
   userAgent?: string;
 }
 
+/** Everything any allpages command can put in an output directory. */
+const ALL_OUTPUTS = ['allpages.png', 'shots', 'routes.txt', 'allpages.svg', 'pages'];
+
 /**
- * Clear only what allpages itself writes, and refuse a directory holding
- * anything else. `--out .` must never be read as "delete my project".
+ * Clear what this command is about to write, and refuse a directory holding
+ * files allpages did not put there. `--out .` must never be read as "delete
+ * my project". The two commands share a directory on purpose: running the
+ * sheet and then the Figma export for the same site should leave you with
+ * both, not with an error.
  */
-function prepareOutDir(outDir: string, force: boolean, owned: string[]): void {
+function prepareOutDir(outDir: string, force: boolean, writes: string[]): void {
   if (existsSync(outDir)) {
-    const stray = readdirSync(outDir).filter((e) => !owned.includes(e));
+    const stray = readdirSync(outDir).filter((e) => !ALL_OUTPUTS.includes(e));
     if (stray.length > 0 && !force) {
       fail(
-        `${outDir} already has other files in it (${stray.slice(0, 3).join(', ')}${stray.length > 3 ? ', …' : ''}).\n` +
-          `  allpages only writes ${owned.join(' and ')}. Pick an empty --out, or pass --force.`,
+        `${outDir} already has files in it that allpages didn't write (${stray.slice(0, 3).join(', ')}${stray.length > 3 ? ', …' : ''}).\n` +
+          `  Pick an empty --out, or pass --force to write here anyway.`,
       );
     }
   }
-  for (const entry of owned) {
+  for (const entry of writes) {
     rmSync(resolve(outDir, entry), { recursive: true, force: true });
   }
 }
@@ -141,7 +147,8 @@ function parseArgs(argv: string[]): Args {
     devices: [DEVICES.phone!, DEVICES.tablet!, DEVICES.desktop!],
     themes: ['light', 'dark'],
     project: process.cwd(),
-    out: 'allpages',
+    // Filled in from the URL once it's parsed, unless --out overrides it.
+    out: '',
     // 20 routes × 4 variants = 80 tiles, which still downscales to
     // something a person (or a vision model) can actually read.
     max: 20,
@@ -291,6 +298,9 @@ function parseArgs(argv: string[]): Args {
   } catch {
     fail(`not a URL: ${args.url}`);
   }
+  // Each site gets its own folder, so trying four sites in a row gives you
+  // four sheets to compare rather than one that keeps getting overwritten.
+  if (!args.out) args.out = outDirFor(args.url);
   if (args.auth) {
     if (!existsSync(args.auth)) fail(`--auth file not found: ${args.auth}`);
     // Catch a malformed session now, not after shooting a whole sheet of

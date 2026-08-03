@@ -36,6 +36,17 @@ jobs:
           node dist/cli.js figma http://localhost:4173 --project demo-app --no-open --out /tmp/fig
           test -f /tmp/fig/allpages.svg
           grep -q "<text " /tmp/fig/allpages.svg
+      - name: each site gets its own folder, and both commands share it
+        run: |
+          set -e
+          cd /tmp && rm -rf multi && mkdir multi && cd multi
+          node "$GITHUB_WORKSPACE/dist/cli.js" http://localhost:4173 --project "$GITHUB_WORKSPACE/demo-app" --no-open --max 2
+          node "$GITHUB_WORKSPACE/dist/cli.js" figma http://localhost:4173 --project "$GITHUB_WORKSPACE/demo-app" --no-open --max 2
+          test -f allpages/localhost-4173/allpages.png
+          test -f allpages/localhost-4173/allpages.svg
+          node "$GITHUB_WORKSPACE/dist/cli.js" https://example.com --no-open --max 1
+          test -f allpages/example.com/allpages.png
+          test -f allpages/localhost-4173/allpages.png
       - name: end-to-end against a real website
         run: |
           set -e
