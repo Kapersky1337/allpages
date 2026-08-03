@@ -83,7 +83,7 @@ Pages come from whatever the site happens to offer, and all four sources are mer
 
 That last row is what makes this work on client-rendered apps. With Vite, CRA or React Router the served HTML is an empty `<div id="root">` and the links only exist once the framework boots, so allpages notices it got nothing useful and crawls again in a real browser.
 
-## Big sites
+## A big site is not a big design
 
 A 267-page marketing site is usually nine layouts and a few hundred blog posts. Twenty arbitrary pages off the top of that isn't much use, so above 25 pages allpages groups URLs by shape and shoots one page from each layout instead. The grouping happens before any browser opens, so it costs nothing.
 
@@ -143,7 +143,7 @@ Without a session half your app redirects and you end up with a sheet of identic
 
 ```bash
 npx playwright codegen --save-storage=session.json   # log in once
-npx allpages localhost:3000 --auth session.json     # → 72 screens
+npx allpages localhost:3000 --auth session.json     # → 66 screens
 ```
 
 The same flag is the answer to a site that challenges automated browsers. You log in once yourself and allpages reuses the session, rather than trying to talk its way past anything.
@@ -219,6 +219,27 @@ npx allpages figma https://site.com --only '/blog/*' --max 5
 
 Fidelity is good but not perfect: gradients, shadows, transforms and pseudo-elements don't survive the trip. This is meant for pulling a real site into Figma to redesign it, not for archiving one exactly. The PNG sheet is better for that.
 
+## Film a flythrough
+
+```bash
+npx allpages film https://yoursite.com
+```
+
+Same discovery again, but the output is one animated SVG: a camera that glides through your pages in order, holds on each one long enough to read, and loops without a visible seam.
+
+![Animated flythrough of astro.build: phone screenshots gliding past one page at a time](https://raw.githubusercontent.com/kapersky1337/allpages/main/example-film.svg)
+
+<sub>This is a live SVG animating in your browser right now, not a gif. astro.build, 8 pages, one 18-second loop, made in 12.2s.</sub>
+
+It's for launch day. Screen-record it for the video, drop the file into a README where it animates as an ordinary image, or open it full-screen behind you in a demo. There's no video toolchain behind it and nothing to install: the whole film is screenshots and a CSS animation riding in one file, which is also why it loops forever without stuttering.
+
+```
+  ✓ 9 pages → a 20s loop in 2.4s
+    allpages/yoursite.com/film.svg  plays in any browser, loops without a seam
+```
+
+Phone frames by default, since a row of phones reads instantly at video sizes; `--devices desktop` if your story is desktop. `--themes dark` films the dark side. `--max 8` makes a tighter loop.
+
 ## Use it as a library
 
 ```bash
@@ -281,7 +302,7 @@ The sheet is a single image and the shots are ordinary files, so instead of 54 s
 - **If a site has no dark mode**, and every dark shot comes out byte-identical to its light one, the dark tiles are dropped and the sheet tells you why.
 - **A site that really wants to keep scripts out can.** You'll be told that's what happened instead of getting a sheet of error pages.
 - Routes behind a login, or that couldn't be reached, are listed rather than quietly dropped.
-- Inside an output folder allpages only writes `allpages.png`, `shots/`, `routes.txt`, `allpages.svg` and `pages/`. If it finds anything else there it stops instead of deleting your files.
+- Inside an output folder allpages only writes `allpages.png`, `shots/`, `routes.txt`, `allpages.svg`, `pages/` and `film.svg`. If it finds anything else there it stops instead of deleting your files.
 - On sites you don't own it tries to behave: `robots.txt` is respected by default, and the crawl is limited by both depth and count.
 
 ## Using this responsibly

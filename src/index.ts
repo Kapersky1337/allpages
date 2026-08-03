@@ -17,6 +17,8 @@ export {
 } from './identity.ts';
 export { exportFigma, wrapSvg } from './figma.ts';
 export type { FigmaOptions, FigmaResult } from './figma.ts';
+export { buildFilmSvg, cameraKeyframes } from './film.ts';
+export type { FilmOptions } from './film.ts';
 export { extractVector, pageToSvgGroup, primaryFont } from './vector.ts';
 export type { VectorNode, VectorPage } from './vector.ts';
 export { crawlWithBrowser, fetchRobots, isAllowed, isCrawlable } from './crawl.ts';

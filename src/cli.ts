@@ -6,6 +6,7 @@ import { chromium, type Browser } from 'playwright-core';
 import { captureAll } from './capture.ts';
 import { crawlWithBrowser } from './crawl.ts';
 import { exportFigma } from './figma.ts';
+import { buildFilmSvg } from './film.ts';
 import { httpHeaders } from './identity.ts';
 import { outDirFor, selectRoutes } from './api.ts';
 import {
@@ -30,6 +31,7 @@ const HELP = `allpages: every page of your app, as one image
   npx allpages http://localhost:3000
   npx allpages https://yoursite.com
   npx allpages figma https://yoursite.com    → editable SVG for Figma
+  npx allpages film https://yoursite.com     → animated flythrough (SVG)
 
 Finds every page a site has, shoots each one on phone, tablet and
 desktop in light and dark, and stitches them into one contact sheet you
@@ -76,7 +78,7 @@ dynamic routes with no example URL appear as labeled empty tiles rather
 than being quietly dropped.`;
 
 interface Args {
-  command: 'sheet' | 'figma';
+  command: 'sheet' | 'figma' | 'film';
   devicesExplicit: boolean;
   url: string;
   devices: Device[];
@@ -108,7 +110,7 @@ interface Args {
 }
 
 /** Everything any allpages command can put in an output directory. */
-const ALL_OUTPUTS = ['allpages.png', 'shots', 'routes.txt', 'allpages.svg', 'pages'];
+const ALL_OUTPUTS = ['allpages.png', 'shots', 'routes.txt', 'allpages.svg', 'pages', 'film.svg'];
 
 /**
  * Clear what this command is about to write, and refuse a directory holding
@@ -281,9 +283,10 @@ function parseArgs(argv: string[]): Args {
         i++;
         break;
       case 'figma':
-        // Subcommand, but only in the first position; a site could
-        // legitimately have a page called /figma.
-        if (i === 0) args.command = 'figma';
+      case 'film':
+        // Subcommands, but only in the first position; a site could
+        // legitimately have a page called /figma or /film.
+        if (i === 0) args.command = arg;
         else args.url = arg;
         break;
       default:
@@ -540,10 +543,85 @@ async function main(): Promise<void> {
     process.stdout.write(
       `  ${paint(`${routes.length} routes × ${args.devices.length} sizes × ${args.themes.length} themes = ${total} screens`, DIM)}\n\n`,
     );
+  } else if (args.command === 'film') {
+    process.stdout.write(
+      `  ${paint(`${routes.length} page${routes.length === 1 ? '' : 's'} → one looping flythrough`, DIM)}\n\n`,
+    );
   } else {
     process.stdout.write(
       `  ${paint(`${routes.length} page${routes.length === 1 ? '' : 's'} → vector`, DIM)}\n\n`,
     );
+  }
+
+  // 3b. Film: same discovery, but the output is one animated SVG that
+  // glides through the pages in order. Phone frames unless told otherwise,
+  // because a row of phones reads instantly at video sizes.
+  if (args.command === 'film') {
+    const filmDir = resolve(args.out);
+    prepareOutDir(filmDir, args.force, ['film.svg', 'shots']);
+    try {
+      const device = args.devicesExplicit ? (args.devices[0] ?? DEVICES.phone!) : DEVICES.phone!;
+      const theme = args.themes[0] ?? 'light';
+      const result = await captureAll(
+        browser,
+        routes,
+        {
+          baseUrl: args.url,
+          devices: [device],
+          themes: [theme],
+          outDir: resolve(filmDir, 'shots'),
+          concurrency: args.concurrency,
+          timeoutMs: args.timeoutMs,
+          fullPage: false,
+          insecure: args.insecure,
+          hide: args.hide,
+          delayMs: args.delayMs,
+          lazyLoad: args.lazyLoad,
+          dismissBanners: args.dismissBanners,
+          ...(args.waitFor ? { waitFor: args.waitFor } : {}),
+          ...(args.userAgent ? { userAgent: args.userAgent } : {}),
+          ...(args.auth ? { storageState: args.auth } : {}),
+        },
+        (done, all) => {
+          if (!color) return;
+          const width = 28;
+          const filled = Math.round((done / all) * width);
+          process.stdout.write(
+            `\r  ${paint('▬'.repeat(filled) + '·'.repeat(width - filled), GREEN)} ${done}/${all}`,
+          );
+        },
+      );
+      if (color) process.stdout.write('\r'.padEnd(50) + '\r');
+
+      const captured = result.shots.filter((s) => s.file);
+      if (captured.length === 0) {
+        process.stderr.write(`\n  ${paint('captured nothing', BOLD)}: every page failed to load\n\n`);
+        await browser.close().catch(() => {});
+        process.exit(1);
+      }
+
+      const filmPath = resolve(filmDir, 'film.svg');
+      const svg = buildFilmSvg(captured, {
+        title: new URL(args.url).host,
+        outDir: resolve(filmDir, 'shots'),
+      });
+      writeFileSync(filmPath, svg);
+
+      const seconds = ((Date.now() - started) / 1000).toFixed(1);
+      const loopSeconds = ((captured.length * 2250) / 1000).toFixed(0);
+      process.stdout.write(
+        `  ${paint('✓', GREEN)} ${paint(String(captured.length), BOLD)} page${captured.length === 1 ? '' : 's'} → a ${paint(`${loopSeconds}s`, BOLD)} loop in ${paint(`${seconds}s`, BOLD)}\n` +
+          `    ${paint(filmPath.replace(`${process.cwd()}/`, ''), BOLD)}  ${paint('plays in any browser, loops without a seam', DIM)}\n` +
+          `    ${paint('screen-record it for video, or use the SVG as is in a README', DIM)}\n\n`,
+      );
+      if (args.open && process.platform === 'darwin') {
+        const { spawn } = await import('node:child_process');
+        spawn('open', [filmPath], { detached: true, stdio: 'ignore' }).unref();
+      }
+    } finally {
+      await browser.close().catch(() => {});
+    }
+    return;
   }
 
   // 3a. Figma export: same discovery, vector output instead of pixels.

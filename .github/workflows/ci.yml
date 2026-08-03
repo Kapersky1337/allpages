@@ -36,6 +36,13 @@ jobs:
           node dist/cli.js figma http://localhost:4173 --project demo-app --no-open --out /tmp/fig
           test -f /tmp/fig/allpages.svg
           grep -q "<text " /tmp/fig/allpages.svg
+      - name: film export end-to-end
+        run: |
+          set -e
+          node dist/cli.js film http://localhost:4173 --project demo-app --no-open --out /tmp/film
+          test -f /tmp/film/film.svg
+          grep -q "@keyframes cam" /tmp/film/film.svg
+          grep -q "data:image/png;base64," /tmp/film/film.svg
       - name: each site gets its own folder, and both commands share it
         run: |
           set -e
