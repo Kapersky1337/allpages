@@ -6,9 +6,9 @@
 npx everypage https://yoursite.com
 ```
 
-![every page of vite.dev, as one contact sheet](https://raw.githubusercontent.com/kapersky1337/everypage/main/example.png)
+![every page of a demo app, as one contact sheet](https://raw.githubusercontent.com/kapersky1337/everypage/main/example.png)
 
-<sub>`npx everypage https://vite.dev` — 10 routes, 28 screens, 15.6s. The three `HTTP 404` chips at the bottom are stale sitemap entries; everypage reports them instead of showing you blank tiles.</sub>
+<sub>The bundled demo app: 12 routes, 44 screens, 5.9s — including two pages behind a login. Run it yourself with `node demo-app/server.js`.</sub>
 
 No config. No list of URLs. No test file. It finds the pages itself.
 
@@ -60,10 +60,6 @@ $ npx everypage https://acme.com
   /blog/:slug 186 pages · /customers/:slug 74 pages
   --only '/blog/*' to open one up · --all for every page
 ```
-
-![playwright.dev — 357 pages collapsed to 11 layouts](https://raw.githubusercontent.com/kapersky1337/everypage/main/example-bigsite.png)
-
-<sub>`npx everypage https://playwright.dev` — 357 pages, 11 layouts, 44 screens, 17.1s. Every tile says what it stands for.</sub>
 
 Tiles say what they stand for:
 
@@ -156,6 +152,31 @@ A map with a labeled hole beats a map that quietly lies.
 
 You get `everypage/everypage.png` (the sheet) and `everypage/shots/` (each screenshot, named `route--device--theme.png`).
 
+## Export to Figma
+
+```bash
+npx everypage figma https://yoursite.com
+```
+
+Same discovery, vector output. You get `everypage.svg` — every page side by side as a group — plus `pages/*.svg` for importing one at a time. Drag either into Figma.
+
+```
+  ✓ 11 pages · 1,240 editable layers in 6.2s
+    everypage/everypage.svg  ← drag into Figma
+    everypage/pages/ one SVG per page
+```
+
+**These are real layers, not a screenshot in a wrapper.** Text arrives as editable text with its own font, size, weight and colour. Boxes arrive as rects with their real corner radii and borders. Inline SVG icons are carried through as vector, so a logo stays a logo. Only genuinely raster things — photos, `<img>` — stay raster.
+
+It also skips what shouldn't be there: screen-reader-only text, `display:none`, off-screen elements, and CSS-mask icons that would otherwise import as black squares. Font stacks are resolved to the first *real* family, because Figma can't match `ui-sans-serif`.
+
+```bash
+npx everypage figma localhost:3000 --devices phone   # mobile canvas
+npx everypage figma https://site.com --only '/blog/*' --max 5
+```
+
+Fidelity is high but not perfect — gradients, shadows, transforms and pseudo-elements aren't reproduced. It's for taking a real site into Figma to redesign, not for pixel-exact archival. Use the PNG sheet for that.
+
 ## Use it as a library
 
 ```bash
@@ -220,11 +241,26 @@ The sheet is one image; the shots are plain files. Instead of 44 screenshot tool
 - everypage only ever writes `everypage.png` and `shots/`. If `--out` points at a directory with anything else in it, it refuses rather than deleting your files.
 - Be a good citizen on sites you don't own: `robots.txt` is respected by default and the crawl is depth- and count-limited.
 
+## Using this responsibly
+
+everypage drives a real browser against whatever URL you give it. On your own sites that's just tooling. On sites you don't own, a few things are worth knowing, and the defaults are set so you don't have to think about them:
+
+- **`robots.txt` is respected by default.** `--no-robots` exists for your own sites; using it elsewhere is on you.
+- **The crawl is bounded** — same-origin only, two link levels, 500 pages of discovery — so it behaves like a person browsing, not a scraper.
+- **Nothing is uploaded.** Every file stays on your machine; there is no account, no telemetry, no server.
+- **Cookie dialogs are clicked** so pages render normally. If you'd rather not interact with a site at all, `--no-banners`. Sessions live only for the run.
+- **What you capture belongs to the site's owner.** Screenshots and SVG exports contain someone else's design, content and trademarks. everypage gives you no rights to them — check you have permission before capturing, republishing, or shipping a design derived from a site you don't own.
+- Many sites' terms restrict automated access. That agreement is between you and them.
+
+## Licensing
+
+MIT — see [LICENSE](./LICENSE). One runtime dependency, [`playwright-core`](https://github.com/microsoft/playwright) (Apache-2.0, © Microsoft). Full attribution in [NOTICE](./NOTICE).
+
 ## Build
 
 ```bash
 npm install && npm run build
-npm test                                    # 46 tests
+npm test                                    # 49 tests
 node demo-app/server.js &                   # a small app with a login wall
 node dist/cli.js localhost:4173 --project demo-app
 ```

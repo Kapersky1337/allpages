@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 import { captureAll } from './capture.ts';
 import { crawlWithBrowser } from './crawl.ts';
+import { exportFigma } from './figma.ts';
 import { selectRoutes } from './api.ts';
 import {
   mergeRoutes,
@@ -27,6 +28,7 @@ const HELP = `everypage — every page of your app, as one image
 
   npx everypage http://localhost:3000
   npx everypage https://yoursite.com
+  npx everypage figma https://yoursite.com    → editable SVG for Figma
 
 Finds every page a site has, shoots each one on phone and desktop in
 light and dark, and stitches them into a single contact sheet you can
@@ -63,6 +65,7 @@ Options
   --no-robots                 crawl paths robots.txt disallows
   --user-agent <ua>           override the browser user agent
   --insecure                  accept self-signed certs (local https)
+  --svg                       (figma) write SVG only, skip the sheet
   --force                     write into a directory that has other files
   --no-open                   don't open the sheet when done
   -h, --help                  this help
@@ -72,6 +75,8 @@ dynamic routes with no example URL appear as labeled empty tiles rather
 than being quietly dropped.`;
 
 interface Args {
+  command: 'sheet' | 'figma';
+  devicesExplicit: boolean;
   url: string;
   devices: Device[];
   themes: Theme[];
@@ -101,6 +106,25 @@ interface Args {
   userAgent?: string;
 }
 
+/**
+ * Clear only what everypage itself writes, and refuse a directory holding
+ * anything else. `--out .` must never be read as "delete my project".
+ */
+function prepareOutDir(outDir: string, force: boolean, owned: string[]): void {
+  if (existsSync(outDir)) {
+    const stray = readdirSync(outDir).filter((e) => !owned.includes(e));
+    if (stray.length > 0 && !force) {
+      fail(
+        `${outDir} already has other files in it (${stray.slice(0, 3).join(', ')}${stray.length > 3 ? ', …' : ''}).\n` +
+          `  everypage only writes ${owned.join(' and ')} — pick an empty --out, or pass --force.`,
+      );
+    }
+  }
+  for (const entry of owned) {
+    rmSync(resolve(outDir, entry), { recursive: true, force: true });
+  }
+}
+
 function fail(message: string): never {
   process.stderr.write(`everypage: ${message}\n`);
   process.exit(2);
@@ -108,6 +132,8 @@ function fail(message: string): never {
 
 function parseArgs(argv: string[]): Args {
   const args: Args = {
+    command: 'sheet',
+    devicesExplicit: false,
     url: '',
     devices: [DEVICES.phone!, DEVICES.desktop!],
     themes: ['light', 'dark'],
@@ -151,6 +177,7 @@ function parseArgs(argv: string[]): Args {
         process.exit(0);
         break;
       case '--devices': {
+        args.devicesExplicit = true;
         const names = need(i++, '--devices').split(',').map((s) => s.trim());
         args.devices = names.map((n) => DEVICES[n] ?? fail(`unknown device "${n}" (phone, tablet, desktop)`));
         break;
@@ -242,6 +269,12 @@ function parseArgs(argv: string[]): Args {
       case '--timeout':
         args.timeoutMs = Math.max(1000, (Math.floor(Number(need(i, '--timeout'))) || 15) * 1000);
         i++;
+        break;
+      case 'figma':
+        // Subcommand, but only in the first position — a site could
+        // legitimately have a page called /figma.
+        if (i === 0) args.command = 'figma';
+        else args.url = arg;
         break;
       default:
         if (arg.startsWith('-')) fail(`unknown option: ${arg}`);
@@ -433,29 +466,79 @@ async function main(): Promise<void> {
     );
   }
 
-  const total = routes.length * args.devices.length * args.themes.length;
-  process.stdout.write(
-    `  ${paint(`${routes.length} routes × ${args.devices.length} sizes × ${args.themes.length} themes = ${total} screens`, DIM)}\n\n`,
-  );
+  if (args.command === 'sheet') {
+    const total = routes.length * args.devices.length * args.themes.length;
+    process.stdout.write(
+      `  ${paint(`${routes.length} routes × ${args.devices.length} sizes × ${args.themes.length} themes = ${total} screens`, DIM)}\n\n`,
+    );
+  } else {
+    process.stdout.write(
+      `  ${paint(`${routes.length} page${routes.length === 1 ? '' : 's'} → vector`, DIM)}\n\n`,
+    );
+  }
+
+  // 3a. Figma export: same discovery, vector output instead of pixels.
+  if (args.command === 'figma') {
+    const figDir = resolve(args.out);
+    prepareOutDir(figDir, args.force, ['everypage.svg', 'pages']);
+    try {
+      const result = await exportFigma(browser, routes, {
+        baseUrl: args.url,
+        device: args.devicesExplicit ? (args.devices[0] ?? DEVICES.desktop!) : DEVICES.desktop!,
+        theme: args.themes[0] ?? 'light',
+        outDir: figDir,
+        timeoutMs: args.timeoutMs,
+        concurrency: args.concurrency,
+        fullPage: args.fullPage,
+        gap: 120,
+        hide: args.hide,
+        delayMs: args.delayMs,
+        lazyLoad: args.lazyLoad,
+        dismissBanners: args.dismissBanners,
+        ...(args.waitFor ? { waitFor: args.waitFor } : {}),
+        ...(args.userAgent ? { userAgent: args.userAgent } : {}),
+        ...(args.auth ? { storageState: args.auth } : {}),
+        insecure: args.insecure,
+        onProgress: (done, all) => {
+          if (!color) return;
+          const width = 28;
+          const filled = Math.round((done / all) * width);
+          process.stdout.write(
+            `\r  ${paint('▬'.repeat(filled) + '·'.repeat(width - filled), GREEN)} ${done}/${all}`,
+          );
+        },
+      });
+      if (color) process.stdout.write('\r'.padEnd(50) + '\r');
+
+      const ok = result.pages.filter((p) => !p.skipped);
+      if (ok.length === 0) {
+        process.stderr.write(`\n  ${paint('captured nothing', BOLD)} — every page failed to load\n\n`);
+        await browser.close().catch(() => {});
+        process.exit(1);
+      }
+      const seconds = ((Date.now() - started) / 1000).toFixed(1);
+      process.stdout.write(
+        `  ${paint('✓', GREEN)} ${paint(String(ok.length), BOLD)} page${ok.length === 1 ? '' : 's'} · ` +
+          `${paint(result.totalNodes.toLocaleString(), BOLD)} editable layers in ${paint(`${seconds}s`, BOLD)}\n` +
+          `    ${paint(result.file.replace(`${process.cwd()}/`, ''), BOLD)}  ${paint('← drag into Figma', DIM)}\n` +
+          `    ${paint(`${args.out}/pages/`, DIM)} ${paint('one SVG per page', DIM)}\n\n`,
+      );
+      const failed = result.pages.filter((p) => p.skipped);
+      if (failed.length > 0) {
+        process.stdout.write(
+          `  ${paint(`${failed.length} page${failed.length === 1 ? '' : 's'} skipped: ${failed.slice(0, 3).map((p) => p.route).join(', ')}`, DIM)}\n\n`,
+        );
+      }
+    } finally {
+      await browser.close().catch(() => {});
+    }
+    return;
+  }
 
   // 3. Shoot. (browser launched before discovery when a JS crawl is needed)
-  // Only ever remove what we created. `--out .` is the obvious thing to
-  // type when you want the sheet in the current folder, and wiping the
-  // directory someone named is never an acceptable interpretation of it.
   const outDir = resolve(args.out);
   const sheetPath = resolve(outDir, 'everypage.png');
-  const shotsDir = resolve(outDir, 'shots');
-  if (existsSync(outDir)) {
-    const stray = readdirSync(outDir).filter((e) => e !== 'shots' && e !== 'everypage.png');
-    if (stray.length > 0 && !args.force) {
-      fail(
-        `${args.out} already has other files in it (${stray.slice(0, 3).join(', ')}${stray.length > 3 ? ', …' : ''}).\n` +
-          `  everypage only writes everypage.png and shots/ — pick an empty --out, or pass --force.`,
-      );
-    }
-  }
-  rmSync(shotsDir, { recursive: true, force: true });
-  rmSync(sheetPath, { force: true });
+  prepareOutDir(outDir, args.force, ['everypage.png', 'shots', 'routes.txt']);
   let result;
   try {
     result = await captureAll(

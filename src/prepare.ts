@@ -82,52 +82,59 @@ const NOISE_SELECTORS = [
   'div[id*="cookie-banner"]',
 ];
 
-/** Click a consent button if one is on screen. Returns what it clicked. */
+/**
+ * Click a consent button if one is on screen.
+ *
+ * Done in a single page evaluation rather than by polling each selector:
+ * Playwright's per-selector wait costs up to a quarter second when the
+ * element is absent, and absent is the normal case for 15 of 16 vendors.
+ * One DOM pass costs a few milliseconds and answers for all of them.
+ */
 export async function dismissConsent(page: Page): Promise<string | null> {
-  for (const selector of CONSENT_BUTTONS) {
-    try {
-      const button = page.locator(selector).first();
-      if (await button.isVisible({ timeout: 250 })) {
-        await button.click({ timeout: 1500, noWaitAfter: true });
-        await page.waitForTimeout(250);
-        return selector;
-      }
-    } catch {
-      // not present, hidden, or detached mid-click — try the next one
-    }
-  }
-
-  // Text-matched fallback for hand-rolled banners.
   try {
-    const clicked = await page.evaluate((phrases: string[]) => {
-      const isButtonish = (el: Element): boolean => {
-        const tag = el.tagName.toLowerCase();
-        if (tag === 'button' || tag === 'a') return true;
-        const role = el.getAttribute('role');
-        return role === 'button' || (el as HTMLElement).onclick !== null;
-      };
-      const candidates = [...document.querySelectorAll('button, a, [role="button"]')];
-      for (const phrase of phrases) {
-        for (const el of candidates) {
-          const text = (el.textContent ?? '').trim().toLowerCase();
-          // Button-length text only: never a paragraph that mentions cookies.
-          if (text.length > 24 || text !== phrase || !isButtonish(el)) continue;
-          const rect = el.getBoundingClientRect();
-          if (rect.width === 0 || rect.height === 0) continue;
-          (el as HTMLElement).click();
-          return phrase;
+    const clicked = await page.evaluate(
+      ({ selectors, phrases }: { selectors: string[]; phrases: string[] }) => {
+        const onScreen = (el: Element): boolean => {
+          const r = el.getBoundingClientRect();
+          if (r.width < 4 || r.height < 4) return false;
+          const s = getComputedStyle(el);
+          return s.visibility !== 'hidden' && s.display !== 'none' && Number(s.opacity) > 0.05;
+        };
+
+        for (const selector of selectors) {
+          let el: Element | null = null;
+          try {
+            el = document.querySelector(selector);
+          } catch {
+            continue; // invalid selector in the list; never fatal
+          }
+          if (el && onScreen(el)) {
+            (el as HTMLElement).click();
+            return selector;
+          }
         }
-      }
-      return null;
-    }, CONSENT_TEXT);
-    if (clicked) {
-      await page.waitForTimeout(250);
-      return `text:${clicked}`;
-    }
+
+        // Hand-rolled banners: match short, button-shaped elements only, so
+        // a paragraph about cookies is never clicked.
+        const candidates = [...document.querySelectorAll('button, a, [role="button"]')];
+        for (const phrase of phrases) {
+          for (const el of candidates) {
+            const text = (el.textContent ?? '').trim().toLowerCase();
+            if (text.length > 24 || text !== phrase || !onScreen(el)) continue;
+            (el as HTMLElement).click();
+            return `text:${phrase}`;
+          }
+        }
+        return null;
+      },
+      { selectors: CONSENT_BUTTONS, phrases: CONSENT_TEXT },
+    );
+    if (clicked) await page.waitForTimeout(180);
+    return clicked;
   } catch {
-    // evaluation blocked (CSP, navigation) — fall through to hiding
+    // CSP or a navigation mid-evaluation; hiding still runs after this
+    return null;
   }
-  return null;
 }
 
 /** Hide overlays and any user-supplied selectors, and unfreeze scrolling. */
@@ -146,21 +153,34 @@ export async function hideNoise(page: Page, extra: string[]): Promise<void> {
   }
 }
 
-/** Scroll through the page so lazy images load, then return to the top. */
+/**
+ * Scroll through the page so lazy images load, then return to the top.
+ *
+ * Skipped entirely when there is nothing to lazy-load, which is the common
+ * case and was costing ~400ms on every page for no benefit.
+ */
 export async function triggerLazyLoad(page: Page): Promise<void> {
   try {
-    await page.evaluate(async () => {
-      const step = Math.max(320, window.innerHeight * 0.9);
+    const scrolled = await page.evaluate(async () => {
+      const lazy = document.querySelectorAll(
+        'img[loading="lazy"], img[data-src], img[data-srcset], source[data-srcset], [data-bg], [data-background-image]',
+      ).length;
+      const tall = document.body.scrollHeight > window.innerHeight * 1.2;
+      // Nothing deferred and nothing below the fold: no reason to scroll.
+      if (lazy === 0 && !tall) return false;
+
+      const step = Math.max(600, window.innerHeight);
       const limit = Math.min(document.body.scrollHeight, 20000);
       for (let y = 0; y < limit; y += step) {
         window.scrollTo(0, y);
-        await new Promise((r) => setTimeout(r, 60));
+        await new Promise((r) => setTimeout(r, lazy > 0 ? 40 : 12));
       }
       window.scrollTo(0, 0);
-      await new Promise((r) => setTimeout(r, 120));
+      await new Promise((r) => setTimeout(r, 50));
+      return lazy > 0;
     });
-    // Give decoded images a moment to paint after the scroll back up.
-    await page.waitForTimeout(150);
+    // Only pay for the decode pause when images were actually deferred.
+    if (scrolled) await page.waitForTimeout(90);
   } catch {
     // navigation during scroll; the shot is still worth taking
   }

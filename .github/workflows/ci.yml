@@ -30,6 +30,12 @@ jobs:
           node dist/cli.js http://localhost:4173 --project demo-app --no-open --out /tmp/ep
           test -f /tmp/ep/everypage.png
           echo "captured $(ls /tmp/ep/shots | wc -l) shots"
+      - name: figma export end-to-end
+        run: |
+          set -e
+          node dist/cli.js figma http://localhost:4173 --project demo-app --no-open --out /tmp/fig
+          test -f /tmp/fig/everypage.svg
+          grep -q "<text " /tmp/fig/everypage.svg
       - name: end-to-end against a real website
         run: |
           set -e

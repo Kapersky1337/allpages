@@ -1,0 +1,42 @@
+everypage
+Copyright (c) 2026 kapersky1337
+
+This product is licensed under the MIT License (see LICENSE).
+
+────────────────────────────────────────────────────────────────────────
+Third-party components
+────────────────────────────────────────────────────────────────────────
+
+everypage depends on the following package at runtime. It is installed
+from npm and is not redistributed as part of this repository.
+
+  playwright-core
+  Copyright (c) Microsoft Corporation
+  Licensed under the Apache License, Version 2.0
+  https://github.com/microsoft/playwright
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Development-only dependencies:
+
+  typescript      Apache-2.0   Copyright (c) Microsoft Corporation
+  @types/node     MIT          Copyright (c) Microsoft Corporation and
+                               DefinitelyTyped contributors
+
+everypage downloads or reuses a Chromium build via Playwright, or an
+existing Google Chrome / Microsoft Edge installation. Those browsers are
+licensed by their respective owners and are not distributed with this
+software.
+
+────────────────────────────────────────────────────────────────────────
+Content captured by this tool
+────────────────────────────────────────────────────────────────────────
+
+Screenshots and SVG exports produced by everypage contain material from
+the website you point it at. That material belongs to whoever owns the
+site. everypage claims no rights over it, and running the tool grants
+you none. See "Using this responsibly" in the README before capturing a
+site you do not own or operate.
+
+Any screenshots of third-party websites appearing in this repository's
+documentation are used to illustrate the tool's output. All trademarks
+and content in them remain the property of their respective owners.

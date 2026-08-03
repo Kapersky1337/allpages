@@ -31,7 +31,10 @@ function fileNameFor(slug: string, device: Device, theme: Theme): string {
 /** Wait for the page to stop moving, without hanging on polling apps. */
 async function settle(page: Page, timeoutMs: number): Promise<void> {
   try {
-    await page.waitForLoadState('networkidle', { timeout: Math.min(timeoutMs, 4000) });
+    // networkidle needs 500ms of silence, so it can never be cheaper than
+    // that. Bounded tightly: a page that is not quiet by now is polling,
+    // and waiting longer will not make it quiet.
+    await page.waitForLoadState('networkidle', { timeout: Math.min(timeoutMs, 1500) });
   } catch {
     // A page that never goes idle (websockets, polling) is normal; the
     // domcontentloaded state already fired, so shoot what we have.
@@ -42,7 +45,9 @@ async function settle(page: Page, timeoutMs: number): Promise<void> {
     // fonts API unavailable or blocked; not worth failing a shot over
   }
   // Let CSS entrance animations finish so we don't catch a half-faded page.
-  await page.waitForTimeout(220);
+  // Animations are disabled at capture time, so this only needs to cover
+  // the first paint after fonts settle.
+  await page.waitForTimeout(90);
 }
 
 export interface CaptureResult {
