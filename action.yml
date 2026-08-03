@@ -1,0 +1,53 @@
+name: everypage
+description: Screenshot every page of a site and stitch one contact sheet.
+author: kapersky1337
+branding:
+  icon: grid
+  color: green
+inputs:
+  url:
+    description: The site to shoot (e.g. http://localhost:3000 or https://yoursite.com).
+    required: true
+  out:
+    description: Output directory for everypage.png and shots/.
+    required: false
+    default: everypage
+  max:
+    description: Cap on discovered routes.
+    required: false
+    default: '20'
+  devices:
+    description: Comma-separated device list (phone, tablet, desktop).
+    required: false
+    default: phone,desktop
+  themes:
+    description: Comma-separated themes (light, dark).
+    required: false
+    default: light,dark
+  auth:
+    description: Path to a Playwright storageState JSON, for pages behind a login.
+    required: false
+  args:
+    description: Any additional everypage flags.
+    required: false
+outputs:
+  sheet:
+    description: Path to the generated contact sheet.
+    value: ${{ steps.run.outputs.sheet }}
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: npx playwright install --with-deps chromium
+    - id: run
+      shell: bash
+      run: |
+        set -e
+        npx --yes everypage "${{ inputs.url }}" \
+          --out "${{ inputs.out }}" \
+          --max "${{ inputs.max }}" \
+          --devices "${{ inputs.devices }}" \
+          --themes "${{ inputs.themes }}" \
+          ${{ inputs.auth && format('--auth {0}', inputs.auth) || '' }} \
+          --no-open ${{ inputs.args }}
+        echo "sheet=${{ inputs.out }}/everypage.png" >> "$GITHUB_OUTPUT"

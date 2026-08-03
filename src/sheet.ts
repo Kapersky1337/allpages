@@ -105,14 +105,20 @@ export function buildHtml(shots: Shot[], opts: SheetOptions): string {
 
       const cells = inDevice
         .map((shot) => {
-          const label = shot.route.path;
+          const stands = shot.route.standsFor;
+          // A tile that stands for a family says so: the pattern is the
+          // headline, the page actually shot is the fine print.
+          const label = stands ? stands.pattern : shot.route.path;
+          const sub = stands
+            ? `one of ${stands.count.toLocaleString()} · ${shot.route.path}`
+            : shot.theme;
           const uri = dataUri(opts.outDir, shot.file!);
           const media = uri
             ? `<img src="${uri}" alt="${escapeHtml(label)}">`
             : `<div class="missing"><span>image missing</span></div>`;
           return `<figure class="cell">
   <div class="frame">${media}</div>
-  <figcaption><span class="path">${escapeHtml(label)}</span><span class="variant">${escapeHtml(shot.theme)}</span></figcaption>
+  <figcaption><span class="path">${escapeHtml(label)}</span><span class="variant">${escapeHtml(sub)}</span></figcaption>
 </figure>`;
         })
         .join('\n');

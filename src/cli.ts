@@ -1,20 +1,27 @@
 #!/usr/bin/env node
-import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { cpus } from 'node:os';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 import { captureAll } from './capture.ts';
 import { crawlWithBrowser } from './crawl.ts';
+import { selectRoutes } from './api.ts';
 import {
   mergeRoutes,
   normalizePath,
   routesFromCrawl,
   routesFromDisk,
   routesFromSitemap,
-  sampleRoutes,
 } from './discover.ts';
 import { chooseSheetWidth, renderSheet } from './sheet.ts';
-import { DEVICES, type Device, type Theme } from './types.ts';
+import { DEVICES, type Device, type Route, type Theme } from './types.ts';
+
+/**
+ * How many pages discovery will look at. Deliberately far above --max:
+ * finding a URL is a cheap HTML fetch, and seeing the whole site is what
+ * makes layout grouping accurate. Only screenshots are expensive.
+ */
+const DISCOVERY_CAP = 500;
 
 const HELP = `everypage — every page of your app, as one image
 
@@ -38,7 +45,11 @@ Options
   --routes /a,/b              shoot exactly these, skip discovery
   --project <dir>             where your app's code lives (default: cwd)
   --out <dir>                 output directory (default: ./everypage)
-  --max <n>                   cap discovered routes (default: 20)
+  --max <n>                   cap pages shot (default: 20)
+  --all                       shoot every page, not one per layout
+  --only <glob,glob>          only pages matching these (e.g. '/blog/*')
+  --exclude <glob,glob>       skip pages matching these
+  --no-group                  don't collapse pages that share a layout
   --full-page                 capture whole scroll height into shots/
   --columns <n>               tiles per row on the sheet
   --concurrency <n>           parallel browser contexts (default: cpu count)
@@ -76,6 +87,10 @@ interface Args {
   force: boolean;
   insecure: boolean;
   timeoutMs: number;
+  all: boolean;
+  only: string[];
+  exclude: string[];
+  group: boolean;
   hide: string[];
   waitFor?: string;
   delayMs: number;
@@ -109,6 +124,10 @@ function parseArgs(argv: string[]): Args {
     force: false,
     insecure: false,
     timeoutMs: 15000,
+    all: false,
+    only: [],
+    exclude: [],
+    group: true,
     hide: [],
     delayMs: 0,
     depth: 2,
@@ -176,6 +195,20 @@ function parseArgs(argv: string[]): Args {
         break;
       case '--insecure':
         args.insecure = true;
+        break;
+      case '--all':
+        args.all = true;
+        break;
+      case '--no-group':
+        args.group = false;
+        break;
+      case '--only':
+        args.only = need(i, '--only').split(',').map((x) => x.trim()).filter(Boolean);
+        i++;
+        break;
+      case '--exclude':
+        args.exclude = need(i, '--exclude').split(',').map((x) => x.trim()).filter(Boolean);
+        i++;
         break;
       case '--hide':
         args.hide = need(i, '--hide').split(',').map((x) => x.trim()).filter(Boolean);
@@ -311,16 +344,16 @@ async function main(): Promise<void> {
   const browser = await launchBrowser();
 
   // 2. Discover routes.
-  let routes;
+  let routes: Route[];
   if (args.routes) {
-    routes = args.routes.map((path) => ({ path, source: 'given' as const }));
+    routes = args.routes.map((path) => ({ path, source: 'given' as const }) satisfies Route);
   } else {
     // All sources always run and merge. A sitemap listing only the
     // marketing pages must not hide the rest of the app.
     const fromDisk = routesFromDisk(args.project);
     const [sitemap, quickCrawl] = await Promise.all([
       routesFromSitemap(args.url, 4000),
-      routesFromCrawl(args.url, { maxPages: Math.max(args.max * 2, 60), depth: args.depth, timeoutMs: 6000 }),
+      routesFromCrawl(args.url, { maxPages: DISCOVERY_CAP, depth: args.depth, timeoutMs: 6000 }),
     ]);
 
     // The cheap crawl reads raw HTML, which is empty on a client-rendered
@@ -332,7 +365,7 @@ async function main(): Promise<void> {
     if (needsJs) {
       process.stdout.write(`  ${paint('no links in the HTML — looking again in a browser…', DIM)}\n`);
       const result = await crawlWithBrowser(browser, args.url, {
-        maxPages: Math.max(args.max * 2, 40),
+        maxPages: DISCOVERY_CAP,
         depth: args.depth,
         timeoutMs: args.timeoutMs,
         respectRobots: args.respectRobots,
@@ -372,14 +405,33 @@ async function main(): Promise<void> {
       );
     }
   }
-  // --max caps *discovery*. Routes you asked for by name are never dropped.
-  if (!args.routes && routes.length > args.max) {
-    process.stdout.write(
-      `  ${paint(`${routes.length} routes found — showing the top ${args.max} (--max to change)`, DIM)}\n`,
-    );
-    routes = sampleRoutes(routes, args.max);
+  // Selection is shared with the library so the two can never disagree
+  // about what a run means: filters, then layout grouping, then the cap.
+  const allDiscovered = routes;
+  const discoveredCount = routes.length;
+  const selection = selectRoutes(routes, {
+    max: args.max,
+    only: args.only,
+    exclude: args.exclude,
+    group: args.group && !args.routes,
+    all: args.all,
+  });
+  routes = selection.routes;
+  const before = args.only.length > 0 || args.exclude.length > 0 ? selection.considered : discoveredCount;
+  if (routes.length === 0) {
+    fail(`no pages matched ${args.only.length > 0 ? `--only ${args.only.join(',')}` : '--exclude'}`);
   }
-  if (routes.length === 0) fail('found no pages — pass --routes /,/about to shoot specific ones');
+
+  const grouped = routes.filter((r) => r.standsFor).length;
+  if (grouped > 0) {
+    process.stdout.write(
+      `  ${paint(`${before.toLocaleString()} pages, ${routes.length} layout${routes.length === 1 ? '' : 's'} — shooting one page from each`, DIM)}\n`,
+    );
+  } else if (!args.routes && before > routes.length) {
+    process.stdout.write(
+      `  ${paint(`${before.toLocaleString()} pages to shoot — taking the top ${routes.length} (--max ${before} for all)`, DIM)}\n`,
+    );
+  }
 
   const total = routes.length * args.devices.length * args.themes.length;
   process.stdout.write(
@@ -437,6 +489,19 @@ async function main(): Promise<void> {
     );
     if (color) process.stdout.write('\r'.padEnd(50) + '\r');
 
+    // Nothing is ever silently dropped: when the sheet shows fewer pages
+    // than the site has, every URL still lands in a greppable file.
+    if (allDiscovered.length > routes.length) {
+      const shot = new Set(routes.map((r) => r.path));
+      const lines = [
+        `# ${new URL(args.url).host} — ${allDiscovered.length} pages, ${routes.length} shot — ${new Date().toISOString().slice(0, 10)}`,
+        '# * = in the sheet',
+        '',
+        ...allDiscovered.map((r) => `${shot.has(r.path) ? '* ' : '  '}${r.path}`),
+      ];
+      writeFileSync(resolve(outDir, 'routes.txt'), `${lines.join('\n')}\n`);
+    }
+
     // 4. Stitch.
     const elapsedMs = Date.now() - started;
     const sheet = resolve(outDir, 'everypage.png');
@@ -489,6 +554,22 @@ async function main(): Promise<void> {
       process.stdout.write(
         `  ${paint(`${result.authWalled.length} pages redirected to a login (${list}${more})`, DIM)}\n` +
           `  ${paint('re-run with --auth <storageState.json> to shoot them as you', DIM)}\n`,
+      );
+    }
+    // Choice belongs *after* the picture, when you finally know what your
+    // site contains. Print the exact command at the moment it's useful.
+    const stood = routes.filter((r) => r.standsFor);
+    if (stood.length > 0) {
+      const top = [...stood]
+        .sort((a, b) => (b.standsFor?.count ?? 0) - (a.standsFor?.count ?? 0))
+        .slice(0, 3)
+        .map((r) => `${r.standsFor!.pattern} ${r.standsFor!.count.toLocaleString()} pages`)
+        .join(' · ');
+      const biggest = stood.reduce((a, b) => ((a.standsFor?.count ?? 0) >= (b.standsFor?.count ?? 0) ? a : b));
+      const glob = `${biggest.standsFor!.pattern.replace(/\/:[^/]+$/, '')}/*`;
+      process.stdout.write(
+        `  ${paint(top, DIM)}\n` +
+          `  ${paint(`--only '${glob}' to open one up · --all for every page`, DIM)}\n`,
       );
     }
     process.stdout.write(`  ${paint('drag it into Claude or Cursor →', DIM)} ${paint('"make these consistent"', DIM)}\n\n`);

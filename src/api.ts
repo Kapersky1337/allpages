@@ -11,6 +11,7 @@ import {
   routesFromSitemap,
   sampleRoutes,
 } from './discover.ts';
+import { families, groupRoutes, matchesAny } from './group.ts';
 import { chooseSheetWidth, renderSheet } from './sheet.ts';
 import { DEVICES, type Device, type Route, type Shot, type Theme } from './types.ts';
 
@@ -44,6 +45,18 @@ export interface EverypageOptions {
   respectRobots?: boolean;
   insecure?: boolean;
   userAgent?: string;
+  /** Only pages matching these globs, e.g. `['/blog/*']`. */
+  only?: string[];
+  /** Skip pages matching these globs. */
+  exclude?: string[];
+  /**
+   * Collapse pages that share a URL shape into one representative
+   * (`/blog/:slug` standing for 186 posts). On by default above 24 pages;
+   * set false to shoot pages individually.
+   */
+  group?: boolean;
+  /** Shoot every discovered page rather than one per layout. */
+  all?: boolean;
   /** Skip writing the contact sheet and only produce individual shots. */
   skipSheet?: boolean;
   /** Reuse a browser you already launched; it will not be closed. */
@@ -62,6 +75,8 @@ export interface EverypageResult {
   authWalled: string[];
   /** True when the site rendered identically in light and dark. */
   noDarkMode: boolean;
+  /** Every page discovered, including ones not shot. */
+  discovered: Route[];
   outDir: string;
   elapsedMs: number;
 }
@@ -106,7 +121,7 @@ export async function discoverRoutes(
   const fromDisk = opts.projectDir ? routesFromDisk(opts.projectDir) : [];
   const [sitemap, quickCrawl] = await Promise.all([
     routesFromSitemap(url, 4000),
-    routesFromCrawl(url, { maxPages: Math.max(max * 2, 60), depth, timeoutMs: 6000 }),
+    routesFromCrawl(url, { maxPages: 500, depth, timeoutMs: 6000 }),
   ]);
 
   let browserCrawled: Route[] = [];
@@ -114,7 +129,7 @@ export async function discoverRoutes(
   const needsJs = quickCrawl.length <= 1 && sitemap.length === 0 && fromDisk.length === 0;
   if (needsJs) {
     const result = await crawlWithBrowser(browser, url, {
-      maxPages: Math.max(max * 2, 40),
+      maxPages: 500,
       depth,
       timeoutMs: opts.timeoutMs ?? 15000,
       respectRobots: opts.respectRobots ?? true,
@@ -134,6 +149,50 @@ export async function discoverRoutes(
     usedBrowser: needsJs,
     blockedByRobots,
   };
+}
+
+/** Pages get grouped into layouts above this count. */
+export const GROUP_ABOVE = 24;
+
+export interface SelectResult {
+  /** The pages worth shooting. */
+  routes: Route[];
+  /** How many pages survived the filters, before grouping and the cap. */
+  considered: number;
+}
+
+export interface SelectOptions {
+  max: number;
+  only: string[];
+  exclude: string[];
+  group: boolean;
+  all: boolean;
+}
+
+/**
+ * Turn everything discovered into the pages actually worth shooting:
+ * filters first (explicit intent), then layout grouping (a big site is not
+ * a big design), then the cap. Shared by the CLI and the library so the two
+ * can never disagree about what a run means.
+ */
+export function selectRoutes(discovered: Route[], opts: SelectOptions): SelectResult {
+  let routes = discovered;
+  if (opts.only.length > 0) routes = routes.filter((r) => matchesAny(r.path, opts.only));
+  if (opts.exclude.length > 0) routes = routes.filter((r) => !matchesAny(r.path, opts.exclude));
+  const considered = routes.length;
+
+  // An explicit --only means the caller already chose; never re-collapse it.
+  if (opts.only.length === 0 && opts.group && !opts.all && routes.length > GROUP_ABOVE) {
+    const groups = groupRoutes(routes);
+    if (families(groups).length > 0) {
+      routes = groups.map((g) =>
+        g.members.length > 1
+          ? { ...g.representative, standsFor: { pattern: g.pattern, count: g.members.length } }
+          : g.representative,
+      );
+    }
+  }
+  return { routes: sampleRoutes(routes, opts.max), considered };
 }
 
 /**
@@ -158,10 +217,11 @@ export async function everypage(options: EverypageOptions): Promise<EverypageRes
   const ownsBrowser = !options.browser;
 
   try {
+    let discovered: Route[] = [];
     const routes = options.routes
-      ? options.routes.map((path) => ({ path: normalizePath(path), source: 'given' as const }))
-      : sampleRoutes(
-          (
+      ? options.routes.map((path) => ({ path: normalizePath(path), source: 'given' as const }) satisfies Route)
+      : selectRoutes(
+          (discovered = (
             await discoverRoutes(url, browser, {
               ...(options.projectDir !== undefined ? { projectDir: options.projectDir } : {}),
               max,
@@ -172,9 +232,15 @@ export async function everypage(options: EverypageOptions): Promise<EverypageRes
               ...(options.userAgent !== undefined ? { userAgent: options.userAgent } : {}),
               ...(options.storageState !== undefined ? { storageState: options.storageState } : {}),
             })
-          ).routes,
-          max,
-        );
+          ).routes),
+          {
+            max,
+            only: options.only ?? [],
+            exclude: options.exclude ?? [],
+            group: options.group ?? true,
+            all: options.all ?? false,
+          },
+        ).routes;
 
     mkdirSync(outDir, { recursive: true });
     const shotsDir = resolve(outDir, 'shots');
@@ -221,6 +287,7 @@ export async function everypage(options: EverypageOptions): Promise<EverypageRes
       ...(sheet ? { sheet } : {}),
       shots: captured.shots,
       routes,
+      discovered: discovered.length > 0 ? discovered : routes,
       authWalled: captured.authWalled,
       noDarkMode: captured.noDarkMode,
       outDir,

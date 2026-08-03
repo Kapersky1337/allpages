@@ -7,6 +7,11 @@ export interface Route {
   source: RouteSource;
   /** For dynamic routes: the template this concrete path came from. */
   template?: string;
+  /**
+   * Set when this page was shot to stand for a family of pages sharing a
+   * layout — `/blog/:slug`, 186 pages. The tile says so.
+   */
+  standsFor?: { pattern: string; count: number };
 }
 
 export type Theme = 'light' | 'dark';
