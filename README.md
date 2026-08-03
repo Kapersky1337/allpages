@@ -61,6 +61,10 @@ $ npx everypage https://acme.com
   --only '/blog/*' to open one up · --all for every page
 ```
 
+![playwright.dev — 357 pages collapsed to 11 layouts](https://raw.githubusercontent.com/kapersky1337/everypage/main/example-bigsite.png)
+
+<sub>`npx everypage https://playwright.dev` — 357 pages, 11 layouts, 44 screens, 17.1s. Every tile says what it stands for.</sub>
+
 Tiles say what they stand for:
 
 ```
