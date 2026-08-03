@@ -81,3 +81,44 @@ test('a film with no captured pages refuses instead of writing an empty box', ()
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('pacing and colors are options, with floors that keep the film watchable', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'allpages-film-'));
+  try {
+    const svg = buildFilmSvg(fakeShots(dir, ['/', '/a']), {
+      title: 'x',
+      outDir: dir,
+      holdMs: 900,
+      slideMs: 400,
+      bg: '#101014',
+      accent: '#f472b6',
+    });
+    assert.match(svg, /animation: cam 2600ms/, 'loop length follows the pacing options');
+    assert.match(svg, /fill="#101014"/);
+    assert.match(svg, /fill="#f472b6"/);
+
+    // A zero-length hold would strobe; the floor holds.
+    const floored = buildFilmSvg(fakeShots(dir, ['/', '/a']), { title: 'x', outDir: dir, holdMs: 0, slideMs: 0 });
+    assert.match(floored, /animation: cam 1100ms/);
+
+    // A color with a quote in it must not be able to break out of the markup.
+    const hostile = buildFilmSvg(fakeShots(dir, ['/']), { title: 'x', outDir: dir, bg: '"/><script>' });
+    assert.ok(!hostile.includes('<script>'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('phones wear a device body, desktops a browser bar', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'allpages-film-'));
+  try {
+    const phone = buildFilmSvg(fakeShots(dir, ['/']), { title: 'x', outDir: dir });
+    assert.ok(!phone.includes('<circle'), 'a phone has no window dots');
+
+    const desktopShots = fakeShots(dir, ['/']).map((s) => ({ ...s, device: DEVICES.desktop! }));
+    const desktop = buildFilmSvg(desktopShots, { title: 'x', outDir: dir });
+    assert.equal((desktop.match(/<circle/g) ?? []).length, 6, 'three dots per window, two windows (page + loop copy)');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

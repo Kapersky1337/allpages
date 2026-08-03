@@ -69,6 +69,11 @@ Options
   --user-agent <ua>           override the browser user agent
   --insecure                  accept self-signed certs (local https)
   --svg                       (figma) write SVG only, skip the sheet
+  --hold <ms>                 (film) how long each page stays (default 1600)
+  --slide <ms>                (film) how long the glide takes (default 650)
+  --bg <color>                (film) background color, for filming on brand
+  --accent <color>            (film) progress bar color
+  --title <text>              (film) heading (default: the site's host)
   --force                     write into a directory that has other files
   --no-open                   don't open the sheet when done
   -h, --help                  this help
@@ -107,6 +112,11 @@ interface Args {
   dismissBanners: boolean;
   respectRobots: boolean;
   userAgent?: string;
+  filmHold?: number;
+  filmSlide?: number;
+  filmBg?: string;
+  filmAccent?: string;
+  titleText?: string;
 }
 
 /** Everything any allpages command can put in an output directory. */
@@ -281,6 +291,23 @@ function parseArgs(argv: string[]): Args {
       case '--timeout':
         args.timeoutMs = Math.max(1000, (Math.floor(Number(need(i, '--timeout'))) || 15) * 1000);
         i++;
+        break;
+      case '--hold':
+        args.filmHold = Math.max(400, Math.floor(Number(need(i, '--hold'))) || 1600);
+        i++;
+        break;
+      case '--slide':
+        args.filmSlide = Math.max(150, Math.floor(Number(need(i, '--slide'))) || 650);
+        i++;
+        break;
+      case '--bg':
+        args.filmBg = need(i++, '--bg');
+        break;
+      case '--accent':
+        args.filmAccent = need(i++, '--accent');
+        break;
+      case '--title':
+        args.titleText = need(i++, '--title');
         break;
       case 'figma':
       case 'film':
@@ -602,13 +629,18 @@ async function main(): Promise<void> {
 
       const filmPath = resolve(filmDir, 'film.svg');
       const svg = buildFilmSvg(captured, {
-        title: new URL(args.url).host,
+        title: args.titleText ?? new URL(args.url).host,
         outDir: resolve(filmDir, 'shots'),
+        ...(args.filmHold !== undefined ? { holdMs: args.filmHold } : {}),
+        ...(args.filmSlide !== undefined ? { slideMs: args.filmSlide } : {}),
+        ...(args.filmBg !== undefined ? { bg: args.filmBg } : {}),
+        ...(args.filmAccent !== undefined ? { accent: args.filmAccent } : {}),
       });
       writeFileSync(filmPath, svg);
 
       const seconds = ((Date.now() - started) / 1000).toFixed(1);
-      const loopSeconds = ((captured.length * 2250) / 1000).toFixed(0);
+      const perPageMs = (args.filmHold ?? 1600) + (args.filmSlide ?? 650);
+      const loopSeconds = ((captured.length * perPageMs) / 1000).toFixed(0);
       process.stdout.write(
         `  ${paint('✓', GREEN)} ${paint(String(captured.length), BOLD)} page${captured.length === 1 ? '' : 's'} → a ${paint(`${loopSeconds}s`, BOLD)} loop in ${paint(`${seconds}s`, BOLD)}\n` +
           `    ${paint(filmPath.replace(`${process.cwd()}/`, ''), BOLD)}  ${paint('plays in any browser, loops without a seam', DIM)}\n` +
@@ -675,6 +707,13 @@ async function main(): Promise<void> {
         process.stdout.write(
           `  ${paint(`${failed.length} page${failed.length === 1 ? '' : 's'} skipped: ${failed.slice(0, 3).map((p) => p.route).join(', ')}`, DIM)}\n\n`,
         );
+      }
+      // Land the user one drag away: reveal the SVG selected in Finder, so
+      // "drag into Figma" is the very next motion, not a folder hunt.
+      if (args.open && process.platform === 'darwin') {
+        const { spawn } = await import('node:child_process');
+        spawn('open', ['-R', result.file], { detached: true, stdio: 'ignore' }).unref();
+        process.stdout.write(`  ${paint('opened in Finder, already selected. Drag it into Figma.', DIM)}\n\n`);
       }
     } finally {
       await browser.close().catch(() => {});

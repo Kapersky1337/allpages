@@ -23,6 +23,10 @@ export interface FilmOptions {
   holdMs?: number;
   /** How long the glide between pages takes, in ms. */
   slideMs?: number;
+  /** Background color, for filming on brand. */
+  bg?: string;
+  /** Accent color for the progress bar and the credit line. */
+  accent?: string;
   /** Canvas size. 16:9 by default so it drops straight into a video. */
   width?: number;
   height?: number;
@@ -33,12 +37,11 @@ interface Frame {
   path: string;
   dataUri: string;
   aspect: number; // width / height of the screenshot
+  mobile: boolean;
 }
 
-const BG = '#0b0b0d';
 const TEXT = '#e8e8ea';
 const DIM_TEXT = '#77777d';
-const ACCENT = '#34d399';
 const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
 
 function escapeXml(s: string): string {
@@ -81,8 +84,10 @@ export function cameraKeyframes(
 export function buildFilmSvg(shots: Shot[], opts: FilmOptions): string {
   const width = opts.width ?? 1280;
   const height = opts.height ?? 720;
-  const holdMs = opts.holdMs ?? 1600;
-  const slideMs = opts.slideMs ?? 650;
+  const holdMs = Math.max(400, opts.holdMs ?? 1600);
+  const slideMs = Math.max(150, opts.slideMs ?? 650);
+  const bg = escapeXml(opts.bg ?? '#0b0b0d');
+  const accent = escapeXml(opts.accent ?? '#34d399');
 
   const frames: Frame[] = [];
   for (const shot of shots) {
@@ -97,6 +102,7 @@ export function buildFilmSvg(shots: Shot[], opts: FilmOptions): string {
       path: shot.route.path,
       dataUri: `data:image/png;base64,${bytes.toString('base64')}`,
       aspect: shot.device.width / shot.device.height,
+      mobile: shot.device.mobile,
     });
   }
   if (frames.length === 0) throw new Error('no captured pages to film');
@@ -105,14 +111,20 @@ export function buildFilmSvg(shots: Shot[], opts: FilmOptions): string {
   frames.sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
 
   // Frame geometry: tall enough to read, room above for the title and
-  // below for the progress line.
-  const frameH = Math.round(height * 0.72);
+  // below for the label and progress line. Phones wear a device body,
+  // desktops a browser bar; both are drawn, not photographed, so they
+  // stay crisp at any scale.
+  const mobile = frames[0]!.mobile;
+  const frameH = Math.round(height * 0.7);
   const frameW = Math.round(frameH * frames[0]!.aspect);
-  const gap = Math.round(frameW * 0.18);
+  const bezel = mobile ? Math.max(8, Math.round(frameW * 0.035)) : 0;
+  const barH = mobile ? 0 : Math.max(20, Math.round(frameH * 0.05));
+  const gap = Math.round(frameW * 0.18) + bezel * 2;
   const step = frameW + gap;
   const frameX = Math.round((width - frameW) / 2);
-  const frameY = Math.round(height * 0.13);
-  const radius = Math.max(10, Math.round(frameW * 0.045));
+  const frameY = Math.round(height * 0.14);
+  const radius = mobile ? Math.max(14, Math.round(frameW * 0.09)) : 10;
+  const screenR = mobile ? Math.max(8, radius - Math.round(bezel * 0.6)) : 8;
 
   const { css: camCss, totalMs } = cameraKeyframes(frames.length, step, holdMs, slideMs);
 
@@ -122,10 +134,18 @@ export function buildFilmSvg(shots: Shot[], opts: FilmOptions): string {
   const tiles = sequence
     .map((frame, i) => {
       const x = frameX + i * step;
-      const labelY = frameY + frameH + 34;
+      const chrome = frame.mobile
+        ? // A phone body: one rounded slab behind the screen.
+          `      <rect x="${x - bezel}" y="${frameY - bezel}" width="${frameW + bezel * 2}" height="${frameH + bezel * 2}" rx="${radius}" fill="#141416" stroke="rgba(255,255,255,0.17)" stroke-width="1" filter="url(#lift)"/>\n`
+        : // A browser window: a bar with three dots over the page.
+          `      <rect x="${x - 1}" y="${frameY - barH}" width="${frameW + 2}" height="${frameH + barH + 1}" rx="10" fill="#141416" stroke="rgba(255,255,255,0.17)" stroke-width="1" filter="url(#lift)"/>\n` +
+          `      <circle cx="${x + 16}" cy="${frameY - barH / 2}" r="3.5" fill="#3d3d42"/>\n` +
+          `      <circle cx="${x + 30}" cy="${frameY - barH / 2}" r="3.5" fill="#3d3d42"/>\n` +
+          `      <circle cx="${x + 44}" cy="${frameY - barH / 2}" r="3.5" fill="#3d3d42"/>\n`;
+      const labelY = frameY + frameH + Math.max(bezel, 8) + 30;
       return (
         `    <g>\n` +
-        `      <rect x="${x - 1}" y="${frameY - 1}" width="${frameW + 2}" height="${frameH + 2}" rx="${radius + 1}" fill="none" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>\n` +
+        chrome +
         `      <image href="${frame.dataUri}" x="${x}" y="${frameY}" width="${frameW}" height="${frameH}" clip-path="url(#frame-${i})" preserveAspectRatio="xMidYMin slice"/>\n` +
         `      <text x="${x + frameW / 2}" y="${labelY}" text-anchor="middle" class="route">${escapeXml(frame.path)}</text>\n` +
         `    </g>`
@@ -136,7 +156,7 @@ export function buildFilmSvg(shots: Shot[], opts: FilmOptions): string {
   const clips = sequence
     .map((_, i) => {
       const x = frameX + i * step;
-      return `    <clipPath id="frame-${i}"><rect x="${x}" y="${frameY}" width="${frameW}" height="${frameH}" rx="${radius}"/></clipPath>`;
+      return `    <clipPath id="frame-${i}"><rect x="${x}" y="${frameY}" width="${frameW}" height="${frameH}" rx="${screenR}"/></clipPath>`;
     })
     .join('\n');
 
@@ -155,15 +175,18 @@ export function buildFilmSvg(shots: Shot[], opts: FilmOptions): string {
     .bar { animation: bar ${totalMs}ms linear infinite; transform-origin: ${barX}px ${barY}px; }
     .route { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 15px; fill: ${DIM_TEXT}; }
   </style>
-  <rect width="${width}" height="${height}" fill="${BG}"/>
+  <rect width="${width}" height="${height}" fill="${bg}"/>
   <defs>
+    <filter id="lift" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
     <linearGradient id="fade-l" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="${BG}" stop-opacity="0.9"/>
-      <stop offset="1" stop-color="${BG}" stop-opacity="0"/>
+      <stop offset="0" stop-color="${bg}" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="${bg}" stop-opacity="0"/>
     </linearGradient>
     <linearGradient id="fade-r" x1="1" y1="0" x2="0" y2="0">
-      <stop offset="0" stop-color="${BG}" stop-opacity="0.9"/>
-      <stop offset="1" stop-color="${BG}" stop-opacity="0"/>
+      <stop offset="0" stop-color="${bg}" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="${bg}" stop-opacity="0"/>
     </linearGradient>
 ${clips}
   </defs>
@@ -174,9 +197,9 @@ ${tiles}
   <rect x="${width - Math.round((width - frameW) / 2 - gap / 3)}" y="0" width="${Math.round((width - frameW) / 2 - gap / 3)}" height="${height}" fill="url(#fade-r)"/>
   <text x="40" y="52" font-size="22" font-weight="700" fill="${TEXT}">${escapeXml(opts.title)}</text>
   <text x="40" y="76" font-size="14" fill="${DIM_TEXT}">${frames.length} page${frames.length === 1 ? '' : 's'}</text>
-  <text x="${width - 40}" y="${height - 40}" text-anchor="end" font-size="14" fill="${DIM_TEXT}">made with <tspan fill="${ACCENT}">npx allpages</tspan></text>
+  <text x="${width - 40}" y="${height - 40}" text-anchor="end" font-size="14" fill="${DIM_TEXT}">made with <tspan fill="${accent}">npx allpages</tspan></text>
   <rect x="${barX}" y="${barY}" width="${barW}" height="2" rx="1" fill="rgba(255,255,255,0.10)"/>
-  <rect x="${barX}" y="${barY}" width="${barW}" height="2" rx="1" fill="${ACCENT}" class="bar"/>
+  <rect x="${barX}" y="${barY}" width="${barW}" height="2" rx="1" fill="${accent}" class="bar"/>
 </svg>
 `;
 }

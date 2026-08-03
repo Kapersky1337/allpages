@@ -238,7 +238,20 @@ It's for launch day. Screen-record it for the video, drop the file into a README
     allpages/yoursite.com/film.svg  plays in any browser, loops without a seam
 ```
 
-Phone frames by default, since a row of phones reads instantly at video sizes; `--devices desktop` if your story is desktop. `--themes dark` films the dark side. `--max 8` makes a tighter loop.
+Phone frames come wearing a drawn device body, desktop frames a browser window, both vector, so they stay crisp at any scale. Phone is the default because a row of phones reads instantly at video sizes.
+
+The pacing and the look are yours to set:
+
+```
+--devices desktop     film in browser windows instead of phones
+--themes dark         film the dark side
+--max 8               a tighter loop
+--hold 2000           linger longer on each page (ms)
+--slide 400           snappier cuts between pages (ms)
+--bg '#0a1628'        film on your brand color
+--accent '#f472b6'    progress bar to match
+--title 'Acme v2'     heading, instead of the hostname
+```
 
 ## Use it as a library
 
