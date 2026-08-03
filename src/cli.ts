@@ -24,11 +24,11 @@ import { DEVICES, type Device, type Route, type Theme } from './types.ts';
  */
 const DISCOVERY_CAP = 500;
 
-const HELP = `everypage — every page of your app, as one image
+const HELP = `allpages — every page of your app, as one image
 
-  npx everypage http://localhost:3000
-  npx everypage https://yoursite.com
-  npx everypage figma https://yoursite.com    → editable SVG for Figma
+  npx allpages http://localhost:3000
+  npx allpages https://yoursite.com
+  npx allpages figma https://yoursite.com    → editable SVG for Figma
 
 Finds every page a site has, shoots each one on phone and desktop in
 light and dark, and stitches them into a single contact sheet you can
@@ -46,7 +46,7 @@ Options
                               shoot as the logged-in you
   --routes /a,/b              shoot exactly these, skip discovery
   --project <dir>             where your app's code lives (default: cwd)
-  --out <dir>                 output directory (default: ./everypage)
+  --out <dir>                 output directory (default: ./allpages)
   --max <n>                   cap pages shot (default: 20)
   --all                       shoot every page, not one per layout
   --only <glob,glob>          only pages matching these (e.g. '/blog/*')
@@ -107,7 +107,7 @@ interface Args {
 }
 
 /**
- * Clear only what everypage itself writes, and refuse a directory holding
+ * Clear only what allpages itself writes, and refuse a directory holding
  * anything else. `--out .` must never be read as "delete my project".
  */
 function prepareOutDir(outDir: string, force: boolean, owned: string[]): void {
@@ -116,7 +116,7 @@ function prepareOutDir(outDir: string, force: boolean, owned: string[]): void {
     if (stray.length > 0 && !force) {
       fail(
         `${outDir} already has other files in it (${stray.slice(0, 3).join(', ')}${stray.length > 3 ? ', …' : ''}).\n` +
-          `  everypage only writes ${owned.join(' and ')} — pick an empty --out, or pass --force.`,
+          `  allpages only writes ${owned.join(' and ')} — pick an empty --out, or pass --force.`,
       );
     }
   }
@@ -126,7 +126,7 @@ function prepareOutDir(outDir: string, force: boolean, owned: string[]): void {
 }
 
 function fail(message: string): never {
-  process.stderr.write(`everypage: ${message}\n`);
+  process.stderr.write(`allpages: ${message}\n`);
   process.exit(2);
 }
 
@@ -138,7 +138,7 @@ function parseArgs(argv: string[]): Args {
     devices: [DEVICES.phone!, DEVICES.desktop!],
     themes: ['light', 'dark'],
     project: process.cwd(),
-    out: 'everypage',
+    out: 'allpages',
     // 20 routes × 4 variants = 80 tiles, which still downscales to
     // something a person (or a vision model) can actually read.
     max: 20,
@@ -281,7 +281,7 @@ function parseArgs(argv: string[]): Args {
         args.url = arg;
     }
   }
-  if (!args.url) fail('give me a URL — npx everypage http://localhost:3000');
+  if (!args.url) fail('give me a URL — npx allpages http://localhost:3000');
   if (!/^https?:\/\//.test(args.url)) args.url = `http://${args.url}`;
   try {
     new URL(args.url);
@@ -327,7 +327,7 @@ const paint = (s: string, c: string): string => (color ? `${c}${s}${RESET}` : s)
 /**
  * Find a browser to drive, and if there is none, fetch one.
  *
- * playwright-core deliberately ships no browsers, so a bare `npx everypage`
+ * playwright-core deliberately ships no browsers, so a bare `npx allpages`
  * on a clean machine would otherwise end in "now run this other command".
  * The order is cheapest-first: a Playwright Chromium if it is already
  * there, then the Chrome or Edge nearly every machine already has, and
@@ -406,7 +406,7 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const started = Date.now();
 
-  process.stdout.write(`\n  ${paint('everypage', BOLD)} ${paint(args.url, DIM)}\n\n`);
+  process.stdout.write(`\n  ${paint('allpages', BOLD)} ${paint(args.url, DIM)}\n\n`);
 
   // 1. Reachability — a clear message beats a wall of browser errors, and
   // a TLS complaint must not be reported as "server not running".
@@ -529,7 +529,7 @@ async function main(): Promise<void> {
   // 3a. Figma export: same discovery, vector output instead of pixels.
   if (args.command === 'figma') {
     const figDir = resolve(args.out);
-    prepareOutDir(figDir, args.force, ['everypage.svg', 'pages']);
+    prepareOutDir(figDir, args.force, ['allpages.svg', 'pages']);
     try {
       const result = await exportFigma(browser, routes, {
         baseUrl: args.url,
@@ -586,8 +586,8 @@ async function main(): Promise<void> {
 
   // 3. Shoot. (browser launched before discovery when a JS crawl is needed)
   const outDir = resolve(args.out);
-  const sheetPath = resolve(outDir, 'everypage.png');
-  prepareOutDir(outDir, args.force, ['everypage.png', 'shots', 'routes.txt']);
+  const sheetPath = resolve(outDir, 'allpages.png');
+  prepareOutDir(outDir, args.force, ['allpages.png', 'shots', 'routes.txt']);
   let result;
   try {
     result = await captureAll(
@@ -636,7 +636,7 @@ async function main(): Promise<void> {
 
     // 4. Stitch.
     const elapsedMs = Date.now() - started;
-    const sheet = resolve(outDir, 'everypage.png');
+    const sheet = resolve(outDir, 'allpages.png');
     // Aim for a landscape sheet you can actually take in at a glance:
     // widen it as tiles multiply so the result stays near 16:10.
     const tileHeight = 200;

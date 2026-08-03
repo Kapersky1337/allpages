@@ -1,4 +1,4 @@
-// A tiny multi-page app used to exercise everypage: real routes, dark mode,
+// A tiny multi-page app used to exercise allpages: real routes, dark mode,
 // a login wall, and a dynamic route with concrete instances.
 import { createServer } from 'node:http';
 

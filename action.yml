@@ -1,4 +1,4 @@
-name: everypage
+name: allpages
 description: Screenshot every page of a site and stitch one contact sheet.
 author: kapersky1337
 branding:
@@ -9,9 +9,9 @@ inputs:
     description: The site to shoot (e.g. http://localhost:3000 or https://yoursite.com).
     required: true
   out:
-    description: Output directory for everypage.png and shots/.
+    description: Output directory for allpages.png and shots/.
     required: false
-    default: everypage
+    default: allpages
   max:
     description: Cap on discovered routes.
     required: false
@@ -28,7 +28,7 @@ inputs:
     description: Path to a Playwright storageState JSON, for pages behind a login.
     required: false
   args:
-    description: Any additional everypage flags.
+    description: Any additional allpages flags.
     required: false
 outputs:
   sheet:
@@ -43,11 +43,11 @@ runs:
       shell: bash
       run: |
         set -e
-        npx --yes everypage "${{ inputs.url }}" \
+        npx --yes allpages "${{ inputs.url }}" \
           --out "${{ inputs.out }}" \
           --max "${{ inputs.max }}" \
           --devices "${{ inputs.devices }}" \
           --themes "${{ inputs.themes }}" \
           ${{ inputs.auth && format('--auth {0}', inputs.auth) || '' }} \
           --no-open ${{ inputs.args }}
-        echo "sheet=${{ inputs.out }}/everypage.png" >> "$GITHUB_OUTPUT"
+        echo "sheet=${{ inputs.out }}/allpages.png" >> "$GITHUB_OUTPUT"

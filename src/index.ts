@@ -1,5 +1,5 @@
-export { discoverRoutes, everypage, normalizeUrl } from './api.ts';
-export type { DiscoverResult, EverypageOptions, EverypageResult } from './api.ts';
+export { discoverRoutes, allpages, normalizeUrl } from './api.ts';
+export type { DiscoverResult, AllpagesOptions, AllpagesResult } from './api.ts';
 
 export { captureAll, looksLikeAuthWall, slugsFor } from './capture.ts';
 export { exportFigma, wrapSvg } from './figma.ts';

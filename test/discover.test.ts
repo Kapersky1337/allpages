@@ -9,7 +9,7 @@ import { chooseSheetWidth, buildHtml } from '../src/sheet.ts';
 import { DEVICES, type Route, type Shot } from '../src/types.ts';
 
 function project(files: string[]): string {
-  const dir = mkdtempSync(join(tmpdir(), 'everypage-'));
+  const dir = mkdtempSync(join(tmpdir(), 'allpages-'));
   for (const file of files) {
     const full = join(dir, file);
     mkdirSync(join(full, '..'), { recursive: true });

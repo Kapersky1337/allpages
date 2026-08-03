@@ -28,19 +28,19 @@ jobs:
           node demo-app/server.js &
           sleep 1
           node dist/cli.js http://localhost:4173 --project demo-app --no-open --out /tmp/ep
-          test -f /tmp/ep/everypage.png
+          test -f /tmp/ep/allpages.png
           echo "captured $(ls /tmp/ep/shots | wc -l) shots"
       - name: figma export end-to-end
         run: |
           set -e
           node dist/cli.js figma http://localhost:4173 --project demo-app --no-open --out /tmp/fig
-          test -f /tmp/fig/everypage.svg
-          grep -q "<text " /tmp/fig/everypage.svg
+          test -f /tmp/fig/allpages.svg
+          grep -q "<text " /tmp/fig/allpages.svg
       - name: end-to-end against a real website
         run: |
           set -e
           node dist/cli.js https://example.com --no-open --max 2 --out /tmp/ep-web
-          test -f /tmp/ep-web/everypage.png
+          test -f /tmp/ep-web/allpages.png
       - name: refuses to write into a non-empty directory
         run: |
           mkdir -p /tmp/notempty && echo hi > /tmp/notempty/keep.txt

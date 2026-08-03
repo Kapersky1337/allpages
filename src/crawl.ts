@@ -6,7 +6,7 @@ import type { Route } from './types.ts';
 /**
  * Crawling with a real browser instead of `fetch`, because on a
  * client-rendered app the links do not exist in the HTML — they appear when
- * React runs. This is what makes everypage work on any site rather than only
+ * React runs. This is what makes allpages work on any site rather than only
  * on server-rendered ones.
  */
 

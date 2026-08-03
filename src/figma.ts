@@ -125,7 +125,7 @@ export async function exportFigma(
     maxHeight = Math.max(maxHeight, vector.height);
   });
 
-  const file = join(opts.outDir, 'everypage.svg');
+  const file = join(opts.outDir, 'allpages.svg');
   writeFileSync(file, wrapSvg(groups.join('\n'), Math.max(x - opts.gap, 1), Math.max(maxHeight, 1)));
 
   return {

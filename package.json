@@ -1,7 +1,7 @@
 {
-  "name": "everypage",
+  "name": "allpages",
   "version": "0.1.0",
-  "description": "Every page of your app \u2014 phone and desktop, light and dark \u2014 as one image.",
+  "description": "Every page of a website \u2014 phone and desktop, light and dark \u2014 as one image.",
   "keywords": [
     "screenshot",
     "contact-sheet",
@@ -15,11 +15,11 @@
   "author": "kapersky1337",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kapersky1337/everypage.git"
+    "url": "git+https://github.com/kapersky1337/allpages.git"
   },
   "type": "module",
   "bin": {
-    "everypage": "./dist/cli.js"
+    "allpages": "./dist/cli.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -46,9 +46,9 @@
     "@types/node": "^22.0.0"
   },
   "bugs": {
-    "url": "https://github.com/kapersky1337/everypage/issues"
+    "url": "https://github.com/kapersky1337/allpages/issues"
   },
-  "homepage": "https://github.com/kapersky1337/everypage#readme",
+  "homepage": "https://github.com/kapersky1337/allpages#readme",
   "publishConfig": {
     "access": "public"
   }

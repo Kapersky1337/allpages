@@ -15,8 +15,8 @@ import { families, groupRoutes, matchesAny } from './group.ts';
 import { chooseSheetWidth, renderSheet } from './sheet.ts';
 import { DEVICES, type Device, type Route, type Shot, type Theme } from './types.ts';
 
-/** Options for {@link everypage}. Only `url` is required. */
-export interface EverypageOptions {
+/** Options for {@link allpages}. Only `url` is required. */
+export interface AllpagesOptions {
   /** The site to shoot. `localhost:3000` and full URLs both work. */
   url: string;
   /** Device names (`phone`, `tablet`, `desktop`) or full device objects. */
@@ -26,7 +26,7 @@ export interface EverypageOptions {
   routes?: string[];
   /** Where the app's source lives, for reading framework route files. */
   projectDir?: string;
-  /** Output directory. Receives `everypage.png` and `shots/`. */
+  /** Output directory. Receives `allpages.png` and `shots/`. */
   outDir?: string;
   /** Cap on discovered routes (ignored when `routes` is given). */
   max?: number;
@@ -64,7 +64,7 @@ export interface EverypageOptions {
   onProgress?: (done: number, total: number) => void;
 }
 
-export interface EverypageResult {
+export interface AllpagesResult {
   /** Absolute path to the contact sheet, unless `skipSheet` was set. */
   sheet?: string;
   /** Every capture attempt, including the ones that produced no image. */
@@ -114,7 +114,7 @@ export function normalizeUrl(input: string): string {
 export async function discoverRoutes(
   url: string,
   browser: Browser,
-  opts: Pick<EverypageOptions, 'projectDir' | 'max' | 'depth' | 'timeoutMs' | 'respectRobots' | 'insecure' | 'userAgent' | 'storageState'> = {},
+  opts: Pick<AllpagesOptions, 'projectDir' | 'max' | 'depth' | 'timeoutMs' | 'respectRobots' | 'insecure' | 'userAgent' | 'storageState'> = {},
 ): Promise<DiscoverResult> {
   const max = opts.max ?? 20;
   const depth = opts.depth ?? 2;
@@ -199,16 +199,16 @@ export function selectRoutes(discovered: Route[], opts: SelectOptions): SelectRe
  * Shoot every page of a site and stitch one contact sheet.
  *
  * ```ts
- * import { everypage } from 'everypage';
+ * import { allpages } from 'allpages';
  *
- * const { sheet, shots } = await everypage({ url: 'https://example.com' });
- * console.log(sheet); // → /abs/path/everypage/everypage.png
+ * const { sheet, shots } = await allpages({ url: 'https://example.com' });
+ * console.log(sheet); // → /abs/path/allpages/allpages.png
  * ```
  */
-export async function everypage(options: EverypageOptions): Promise<EverypageResult> {
+export async function allpages(options: AllpagesOptions): Promise<AllpagesResult> {
   const started = Date.now();
   const url = normalizeUrl(options.url);
-  const outDir = resolve(options.outDir ?? 'everypage');
+  const outDir = resolve(options.outDir ?? 'allpages');
   const devices = (options.devices ?? ['phone', 'desktop']).map(toDevice);
   const themes = options.themes ?? (['light', 'dark'] as Theme[]);
   const max = options.max ?? 20;
@@ -272,7 +272,7 @@ export async function everypage(options: EverypageOptions): Promise<EverypageRes
     let sheet: string | undefined;
     if (!options.skipSheet && captured.shots.some((s) => s.file)) {
       const tileHeight = 200;
-      sheet = resolve(outDir, 'everypage.png');
+      sheet = resolve(outDir, 'allpages.png');
       await renderSheet(browser, captured.shots, {
         title: new URL(url).host,
         outDir: shotsDir,

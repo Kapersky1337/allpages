@@ -230,7 +230,7 @@ ${cells}
     <div class="stats"><b>${routeCount}</b> route${routeCount === 1 ? '' : 's'} · <b>${captured}</b> screen${captured === 1 ? '' : 's'} · <b>${seconds}s</b></div>
   </header>
 ${cells}
-  <footer>made with <b>npx everypage</b></footer>
+  <footer>made with <b>npx allpages</b></footer>
 </body>`;
 }
 
