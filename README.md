@@ -253,6 +253,32 @@ The pacing and the look are yours to set:
 --title 'Acme v2'     heading, instead of the hostname
 ```
 
+Three of those, filmed on real sites. All of these are animating as you read:
+
+**Desktop windows.** stripe.com filmed in browser frames, with its chat widget hidden the same way you'd hide anything:
+
+```bash
+npx allpages film https://stripe.com --devices desktop --hide '.UniversalChatInitializer' --max 5
+```
+
+![stripe.com filmed as desktop browser windows gliding past](https://raw.githubusercontent.com/kapersky1337/allpages/main/example-film-desktop.svg)
+
+**Dark.** linear.app in dark theme, where the phones almost disappear into the background and the pages float:
+
+```bash
+npx allpages film https://linear.app --themes dark --max 5
+```
+
+![linear.app filmed dark, pages floating on a black background](https://raw.githubusercontent.com/kapersky1337/allpages/main/example-film-dark.svg)
+
+**On brand.** astro.build filmed on its own purple, with the accent and title to match:
+
+```bash
+npx allpages film https://astro.build --bg '#160b2e' --accent '#c084fc' --title 'astro.build, on brand' --max 5
+```
+
+![astro.build filmed on a purple background with matching accent](https://raw.githubusercontent.com/kapersky1337/allpages/main/example-film-brand.svg)
+
 ## Use it as a library
 
 ```bash
