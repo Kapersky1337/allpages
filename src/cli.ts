@@ -6,6 +6,7 @@ import { chromium, type Browser } from 'playwright-core';
 import { captureAll } from './capture.ts';
 import { crawlWithBrowser } from './crawl.ts';
 import { exportFigma } from './figma.ts';
+import { httpHeaders } from './identity.ts';
 import { selectRoutes } from './api.ts';
 import {
   mergeRoutes,
@@ -24,15 +25,15 @@ import { DEVICES, type Device, type Route, type Theme } from './types.ts';
  */
 const DISCOVERY_CAP = 500;
 
-const HELP = `allpages — every page of your app, as one image
+const HELP = `allpages: every page of your app, as one image
 
   npx allpages http://localhost:3000
   npx allpages https://yoursite.com
   npx allpages figma https://yoursite.com    → editable SVG for Figma
 
-Finds every page a site has, shoots each one on phone and desktop in
-light and dark, and stitches them into a single contact sheet you can
-look at — or drag into Claude or Cursor instead of making it take 47
+Finds every page a site has, shoots each one on phone, tablet and
+desktop in light and dark, and stitches them into one contact sheet you
+can look at, or drag into Claude or Cursor instead of making it take 47
 screenshots one at a time.
 
 Works on a local dev server or any public website. Cookie banners are
@@ -40,7 +41,7 @@ dismissed, lazy images are loaded, and client-rendered links are found
 by crawling in a real browser.
 
 Options
-  --devices phone,desktop     which sizes (phone, tablet, desktop)
+  --devices phone,desktop     which sizes (default: all three)
   --themes light,dark         which color schemes
   --auth <state.json>         Playwright storageState, so private pages
                               shoot as the logged-in you
@@ -116,7 +117,7 @@ function prepareOutDir(outDir: string, force: boolean, owned: string[]): void {
     if (stray.length > 0 && !force) {
       fail(
         `${outDir} already has other files in it (${stray.slice(0, 3).join(', ')}${stray.length > 3 ? ', …' : ''}).\n` +
-          `  allpages only writes ${owned.join(' and ')} — pick an empty --out, or pass --force.`,
+          `  allpages only writes ${owned.join(' and ')}. Pick an empty --out, or pass --force.`,
       );
     }
   }
@@ -135,7 +136,9 @@ function parseArgs(argv: string[]): Args {
     command: 'sheet',
     devicesExplicit: false,
     url: '',
-    devices: [DEVICES.phone!, DEVICES.desktop!],
+    // All three sizes by default. A layout breaks at the size nobody
+    // remembered to open, and tablet is almost always that size.
+    devices: [DEVICES.phone!, DEVICES.tablet!, DEVICES.desktop!],
     themes: ['light', 'dark'],
     project: process.cwd(),
     out: 'allpages',
@@ -271,7 +274,7 @@ function parseArgs(argv: string[]): Args {
         i++;
         break;
       case 'figma':
-        // Subcommand, but only in the first position — a site could
+        // Subcommand, but only in the first position; a site could
         // legitimately have a page called /figma.
         if (i === 0) args.command = 'figma';
         else args.url = arg;
@@ -281,7 +284,7 @@ function parseArgs(argv: string[]): Args {
         args.url = arg;
     }
   }
-  if (!args.url) fail('give me a URL — npx allpages http://localhost:3000');
+  if (!args.url) fail('give me a URL: npx allpages http://localhost:3000');
   if (!/^https?:\/\//.test(args.url)) args.url = `http://${args.url}`;
   try {
     new URL(args.url);
@@ -354,7 +357,7 @@ async function launchBrowser(): Promise<Browser> {
     }
   }
 
-  // Nothing on the machine — fetch Chromium once, then retry.
+  // Nothing on the machine, so fetch Chromium once, then retry.
   if (await installChromium()) {
     try {
       return await chromium.launch({ args: launchArgs });
@@ -366,7 +369,7 @@ async function launchBrowser(): Promise<Browser> {
   fail(
     `couldn't start a browser, and couldn't install one.\n\n` +
       `  Install it manually with:  npx playwright install chromium\n\n` +
-      `  tried — ${problems.join(' · ')}`,
+      `  tried: ${problems.join(' · ')}`,
   );
 }
 
@@ -375,7 +378,7 @@ async function installChromium(): Promise<boolean> {
   const { spawn } = await import('node:child_process');
   const version = playwrightVersion();
   process.stdout.write(
-    `  ${paint('no browser found — downloading Chromium once (~120 MB)', BOLD)}\n` +
+    `  ${paint('no browser found, downloading Chromium once (~120 MB)', BOLD)}\n` +
       `  ${paint('this happens on first run only', DIM)}\n\n`,
   );
   return new Promise((resolve) => {
@@ -408,17 +411,17 @@ async function main(): Promise<void> {
 
   process.stdout.write(`\n  ${paint('allpages', BOLD)} ${paint(args.url, DIM)}\n\n`);
 
-  // 1. Reachability — a clear message beats a wall of browser errors, and
+  // 1. Reachability: a clear message beats a wall of browser errors, and
   // a TLS complaint must not be reported as "server not running".
   if (args.insecure) process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0';
   try {
-    await fetch(args.url, { signal: AbortSignal.timeout(5000) });
+    await fetch(args.url, { signal: AbortSignal.timeout(5000), headers: httpHeaders() });
   } catch (error) {
     const message = error instanceof Error ? String(error.cause ?? error.message) : '';
     if (/certificate|SELF_SIGNED|DEPTH_ZERO|ERR_TLS/i.test(message)) {
-      fail(`${args.url} has a certificate this doesn't trust (self-signed?) — re-run with --insecure`);
+      fail(`${args.url} has a certificate this doesn't trust (self-signed?). Re-run with --insecure`);
     }
-    fail(`can't reach ${args.url} — is your dev server running?`);
+    fail(`can't reach ${args.url}. Is your dev server running?`);
   }
 
   // The browser is needed for capture regardless, and discovery may want
@@ -439,13 +442,13 @@ async function main(): Promise<void> {
     ]);
 
     // The cheap crawl reads raw HTML, which is empty on a client-rendered
-    // app — React writes the links after it boots. When the fast path finds
+    // app: React writes the links after it boots. When the fast path finds
     // almost nothing, crawl again in a real browser where the links exist.
     let browserCrawled: typeof quickCrawl = [];
     let blockedByRobots = 0;
     const needsJs = quickCrawl.length <= 1 && sitemap.length === 0 && fromDisk.length === 0;
     if (needsJs) {
-      process.stdout.write(`  ${paint('no links in the HTML — looking again in a browser…', DIM)}\n`);
+      process.stdout.write(`  ${paint('no links in the HTML, looking again in a browser…', DIM)}\n`);
       const result = await crawlWithBrowser(browser, args.url, {
         maxPages: DISCOVERY_CAP,
         depth: args.depth,
@@ -504,14 +507,21 @@ async function main(): Promise<void> {
     fail(`no pages matched ${args.only.length > 0 ? `--only ${args.only.join(',')}` : '--exclude'}`);
   }
 
-  const grouped = routes.filter((r) => r.standsFor).length;
-  if (grouped > 0) {
+  // Say what actually happened. Reporting "taking the top 20" on a site
+  // whose 999 pages collapsed to 63 layouts hides the interesting half of
+  // the story, and reporting "one page per layout" when the cap then threw
+  // 43 of those layouts away is simply untrue.
+  const layouts = selection.layouts;
+  if (!args.routes && layouts < before) {
+    const summary = `${before.toLocaleString()} pages, ${layouts} layout${layouts === 1 ? '' : 's'}`;
     process.stdout.write(
-      `  ${paint(`${before.toLocaleString()} pages, ${routes.length} layout${routes.length === 1 ? '' : 's'} — shooting one page from each`, DIM)}\n`,
+      routes.length < layouts
+        ? `  ${paint(`${summary}, shooting the ${routes.length} biggest (--max ${layouts} for every layout)`, DIM)}\n`
+        : `  ${paint(`${summary}, shooting one page from each`, DIM)}\n`,
     );
   } else if (!args.routes && before > routes.length) {
     process.stdout.write(
-      `  ${paint(`${before.toLocaleString()} pages to shoot — taking the top ${routes.length} (--max ${before} for all)`, DIM)}\n`,
+      `  ${paint(`${before.toLocaleString()} pages to shoot, taking the top ${routes.length} (--max ${before} for all)`, DIM)}\n`,
     );
   }
 
@@ -561,7 +571,7 @@ async function main(): Promise<void> {
 
       const ok = result.pages.filter((p) => !p.skipped);
       if (ok.length === 0) {
-        process.stderr.write(`\n  ${paint('captured nothing', BOLD)} — every page failed to load\n\n`);
+        process.stderr.write(`\n  ${paint('captured nothing', BOLD)}: every page failed to load\n\n`);
         await browser.close().catch(() => {});
         process.exit(1);
       }
@@ -626,7 +636,7 @@ async function main(): Promise<void> {
     if (allDiscovered.length > routes.length) {
       const shot = new Set(routes.map((r) => r.path));
       const lines = [
-        `# ${new URL(args.url).host} — ${allDiscovered.length} pages, ${routes.length} shot — ${new Date().toISOString().slice(0, 10)}`,
+        `# ${new URL(args.url).host} · ${allDiscovered.length} pages, ${routes.length} shot · ${new Date().toISOString().slice(0, 10)}`,
         '# * = in the sheet',
         '',
         ...allDiscovered.map((r) => `${shot.has(r.path) ? '* ' : '  '}${r.path}`),
@@ -664,9 +674,16 @@ async function main(): Promise<void> {
     // lie about itself. Zero captures is a failure, and exits like one.
     if (captured === 0) {
       const why = result.shots.find((s) => s.skipped)?.skipped ?? 'every page failed to load';
+      // A bot check is not a broken URL, and telling someone to check their
+      // URL when the site simply refused a script wastes their afternoon.
+      const advice =
+        result.botChecked.length > 0
+          ? `this site challenges automated browsers. Log in once and reuse the session:\n` +
+            `  npx playwright codegen --save-storage=session.json ${args.url}\n` +
+            `  npx allpages ${args.url} --auth session.json`
+          : 'check the URL, or pass --auth if the app is behind a login';
       process.stderr.write(
-        `\n  ${paint('captured nothing', BOLD)} — ${why}\n` +
-          `  ${paint('check the URL, or pass --auth if the app is behind a login', DIM)}\n\n`,
+        `\n  ${paint('captured nothing', BOLD)}: ${why}\n` + `  ${paint(advice, DIM)}\n\n`,
       );
       await browser.close().catch(() => {});
       process.exit(1);
@@ -677,7 +694,15 @@ async function main(): Promise<void> {
     );
     if (result.noDarkMode) {
       process.stdout.write(
-        `  ${paint('no dark mode — every dark shot was identical to its light one, so they were dropped', DIM)}\n`,
+        `  ${paint('no dark mode: every dark shot was identical to its light one, so they were dropped', DIM)}\n`,
+      );
+    }
+    if (result.botChecked.length > 0) {
+      const list = result.botChecked.slice(0, 3).join(', ');
+      const more = result.botChecked.length > 3 ? ` +${result.botChecked.length - 3} more` : '';
+      process.stdout.write(
+        `  ${paint(`${result.botChecked.length} page${result.botChecked.length === 1 ? '' : 's'} hit a bot check (${list}${more})`, DIM)}\n` +
+          `  ${paint('--auth <storageState.json> shoots them with a session you opened yourself', DIM)}\n`,
       );
     }
     if (result.authWalled.length > 0) {

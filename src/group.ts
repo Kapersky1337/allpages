@@ -4,7 +4,7 @@ import type { Route } from './types.ts';
  * A big site is not a big design. 312 pages of a marketing site is usually
  * ~11 layouts plus 186 blog posts that share one. Shooting twenty arbitrary
  * pages is an apology; shooting one page per layout is a truer picture of
- * the site than all 312 tiles would be — and it costs nothing, because the
+ * the site than all 312 tiles would be, and it costs nothing, because the
  * grouping is derived from the URLs before a browser ever opens.
  */
 
@@ -56,7 +56,7 @@ export function patternOf(path: string, allPaths: string[]): string {
       siblings.add(otherSegs[depth]!);
     }
     // Never collapse the first segment. /about, /pricing, /contact are the
-    // site's main sections — four distinct designs, not a template. Real
+    // site's main sections: four distinct designs, not a template. Real
     // templates live deeper, under a section that names them.
     const collapsible = depth > 0 && siblings.size >= MIN_SIBLINGS_TO_COLLAPSE;
     out.push(collapsible ? placeholderFor([...siblings]) : segs[depth]!);
@@ -89,7 +89,7 @@ export function groupRoutes(routes: Route[]): RouteGroup[] {
   const groups: RouteGroup[] = [];
   for (const [pattern, members] of byPattern) {
     if (members.length < MIN_SIBLINGS_TO_COLLAPSE && pattern.includes(':')) {
-      // Not enough evidence that this is a template — keep them separate.
+      // Not enough evidence that this is a template, so keep them separate.
       for (const member of members) {
         groups.push({ pattern: member.path, representative: member, members: [member] });
       }
@@ -109,7 +109,7 @@ export function groupRoutes(routes: Route[]): RouteGroup[] {
   });
 }
 
-/** Groups that stand for more than one page — the site's real templates. */
+/** Groups that stand for more than one page: the site's real templates. */
 export function families(groups: RouteGroup[]): RouteGroup[] {
   return groups.filter((g) => g.members.length > 1);
 }

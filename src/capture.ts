@@ -2,13 +2,14 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Browser, Page } from 'playwright-core';
 import { isDynamic, normalizePath } from './discover.ts';
+import { looksLikeBotCheck, userAgentFor } from './identity.ts';
 import { preparePage } from './prepare.ts';
 import type { CaptureOptions, Route, Shot, Theme, Device } from './types.ts';
 
 /**
  * Slugs must be unique per route, not merely readable: `/blog/post-1` and
  * `/blog-post/1` both flatten to `blog-post-1`, and the second would
- * overwrite the first — putting the wrong screenshot under the right
+ * overwrite the first, putting the wrong screenshot under the right
  * label, which is the worst thing this tool could do.
  */
 export function slugsFor(routes: Route[]): Map<string, string> {
@@ -54,8 +55,10 @@ export interface CaptureResult {
   shots: Shot[];
   /** Paths that redirected to a login-looking URL, deduped. */
   authWalled: string[];
+  /** Paths a bot check answered with an interstitial instead of the page. */
+  botChecked: string[];
   /**
-   * True when every dark shot came out byte-identical to its light twin —
+   * True when every dark shot came out byte-identical to its light twin:
    * the app has no dark mode, and showing both would double the sheet
    * while halving the information in it.
    */
@@ -109,6 +112,10 @@ export async function captureAll(
 
   const shots: Shot[] = new Array(jobs.length);
   const authWalled = new Set<string>();
+  const botChecked = new Set<string>();
+  // Read off the browser we actually launched, so the version we claim is
+  // the version that is rendering. See identity.ts for why this matters.
+  const browserVersion = browser.version();
   let done = 0;
   let cursor = 0;
 
@@ -131,7 +138,11 @@ export async function captureAll(
         ...(opts.storageState ? { storageState: opts.storageState } : {}),
         reducedMotion: 'reduce',
         ...(opts.insecure ? { ignoreHTTPSErrors: true } : {}),
-        ...(opts.userAgent ? { userAgent: opts.userAgent } : {}),
+        // A phone viewport asks for the mobile site, a desktop viewport for
+        // the desktop one, and neither announces itself as headless.
+        userAgent: opts.userAgent ?? userAgentFor(device, browserVersion),
+        locale: 'en-US',
+        extraHTTPHeaders: { 'accept-language': 'en-US,en;q=0.9' },
       });
       contexts.set(key, ctx);
       return ctx;
@@ -172,6 +183,7 @@ export async function captureAll(
         const landed = normalizePath(new URL(page.url()).pathname);
         const redirected = landed !== route.path;
         const status = response?.status() ?? 0;
+        const title = (await page.title().catch(() => '')).trim();
 
         if (redirected && looksLikeAuthWall(landed)) {
           authWalled.add(route.path);
@@ -183,6 +195,18 @@ export async function captureAll(
             redirectedTo: landed,
             ms: Date.now() - started,
           };
+        } else if (looksLikeBotCheck(status, title)) {
+          // Worth naming separately: a 403 reads as "you typed the wrong URL",
+          // and this one is "the site would rather not talk to a script".
+          // Those need different things from the person running the command.
+          botChecked.add(route.path);
+          shots[index] = {
+            route,
+            device,
+            theme,
+            skipped: 'blocked by a bot check',
+            ms: Date.now() - started,
+          };
         } else if (status >= 400) {
           shots[index] = { route, device, theme, skipped: `HTTP ${status}`, ms: Date.now() - started };
         } else {
@@ -192,7 +216,6 @@ export async function captureAll(
             fullPage: opts.fullPage,
             animations: 'disabled',
           });
-          const title = (await page.title()).trim();
           shots[index] = {
             route,
             device,
@@ -221,7 +244,12 @@ export async function captureAll(
 
   await Promise.all(Array.from({ length: Math.max(1, opts.concurrency) }, worker));
   const collapsed = dropIdenticalDarkShots(shots, opts.outDir);
-  return { shots: collapsed.shots, authWalled: [...authWalled], noDarkMode: collapsed.noDarkMode };
+  return {
+    shots: collapsed.shots,
+    authWalled: [...authWalled],
+    botChecked: [...botChecked],
+    noDarkMode: collapsed.noDarkMode,
+  };
 }
 
 const AUTH_PATH = /(^|\/)(login|signin|sign-in|auth|register|signup|sign-up|account\/login)(\/|$)/i;

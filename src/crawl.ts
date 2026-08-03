@@ -1,11 +1,12 @@
 import type { Browser } from 'playwright-core';
 import { normalizePath } from './discover.ts';
+import { desktopUserAgent, httpHeaders } from './identity.ts';
 import { dismissConsent } from './prepare.ts';
 import type { Route } from './types.ts';
 
 /**
  * Crawling with a real browser instead of `fetch`, because on a
- * client-rendered app the links do not exist in the HTML — they appear when
+ * client-rendered app the links do not exist in the HTML; they appear when
  * React runs. This is what makes allpages work on any site rather than only
  * on server-rendered ones.
  */
@@ -36,7 +37,10 @@ export interface RobotsRules {
 /** Fetch and parse the `*` user-agent group of robots.txt. Best-effort. */
 export async function fetchRobots(baseUrl: string, timeoutMs = 4000): Promise<RobotsRules> {
   try {
-    const res = await fetch(new URL('/robots.txt', baseUrl), { signal: AbortSignal.timeout(timeoutMs) });
+    const res = await fetch(new URL('/robots.txt', baseUrl), {
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: httpHeaders(),
+    });
     if (!res.ok) return { disallow: [] };
     const text = await res.text();
     const disallow: string[] = [];
@@ -74,7 +78,7 @@ export function isCrawlable(path: string): boolean {
 
 /**
  * Breadth-first crawl in a real browser. Returns concrete, same-origin
- * paths — including the ones a router renders client-side.
+ * paths, including the ones a router renders client-side.
  */
 export async function crawlWithBrowser(
   browser: Browser,
@@ -91,7 +95,9 @@ export async function crawlWithBrowser(
 
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
-    ...(opts.userAgent ? { userAgent: opts.userAgent } : {}),
+    userAgent: opts.userAgent ?? desktopUserAgent(browser.version()),
+    locale: 'en-US',
+    extraHTTPHeaders: { 'accept-language': 'en-US,en;q=0.9' },
     ...(opts.storageState ? { storageState: opts.storageState } : {}),
     ...(opts.insecure ? { ignoreHTTPSErrors: true } : {}),
     // Images and fonts are irrelevant to link extraction; skipping them

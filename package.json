@@ -1,7 +1,7 @@
 {
   "name": "allpages",
-  "version": "0.1.0",
-  "description": "Every page of a website \u2014 phone and desktop, light and dark \u2014 as one image.",
+  "version": "0.2.0",
+  "description": "Every page of a website in one image. Phone, tablet and desktop, light and dark.",
   "keywords": [
     "screenshot",
     "contact-sheet",

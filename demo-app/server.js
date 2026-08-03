@@ -43,7 +43,7 @@ const server = createServer((req, res) => {
   const path = new URL(req.url, 'http://x').pathname.replace(/\/$/, '') || '/';
   const authed = (req.headers.cookie ?? '').includes('session=yes');
 
-  // Two routes sit behind a login — the exact case that ruins naive tools.
+  // Two routes sit behind a login: the exact case that ruins naive tools.
   if ((path === '/dashboard' || path === '/settings') && !authed) {
     res.writeHead(302, { location: '/login' });
     return res.end();

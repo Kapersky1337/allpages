@@ -73,6 +73,8 @@ export interface AllpagesResult {
   routes: Route[];
   /** Routes that redirected to something that looks like a login. */
   authWalled: string[];
+  /** Routes a bot check answered with an interstitial instead of the page. */
+  botChecked: string[];
   /** True when the site rendered identically in light and dark. */
   noDarkMode: boolean;
   /** Every page discovered, including ones not shot. */
@@ -159,6 +161,12 @@ export interface SelectResult {
   routes: Route[];
   /** How many pages survived the filters, before grouping and the cap. */
   considered: number;
+  /**
+   * How many distinct layouts those pages collapse into. Equal to
+   * `considered` when nothing grouped, and the honest denominator for
+   * "showing 20 of these" when something did.
+   */
+  layouts: number;
 }
 
 export interface SelectOptions {
@@ -182,9 +190,11 @@ export function selectRoutes(discovered: Route[], opts: SelectOptions): SelectRe
   const considered = routes.length;
 
   // An explicit --only means the caller already chose; never re-collapse it.
+  let grouped = false;
   if (opts.only.length === 0 && opts.group && !opts.all && routes.length > GROUP_ABOVE) {
     const groups = groupRoutes(routes);
     if (families(groups).length > 0) {
+      grouped = true;
       routes = groups.map((g) =>
         g.members.length > 1
           ? { ...g.representative, standsFor: { pattern: g.pattern, count: g.members.length } }
@@ -192,7 +202,28 @@ export function selectRoutes(discovered: Route[], opts: SelectOptions): SelectRe
       );
     }
   }
-  return { routes: sampleRoutes(routes, opts.max), considered };
+  const layouts = routes.length;
+
+  // A site can have more layouts than --max, and then the cap decides what
+  // the sheet is about. Depth-first ordering alone would spend all twenty
+  // tiles on top-level pages and drop `/blog/:slug` standing for 186,
+  // the single most informative tile on the sheet. So a family counts as
+  // one level shallower than it sits, and the bigger family wins the tie.
+  const rank = grouped ? byRepresentativeness : undefined;
+  return { routes: sampleRoutes(routes, opts.max, rank), considered, layouts };
+}
+
+/** Sort order for grouped routes: shallow first, but families count double. */
+function byRepresentativeness(a: Route, b: Route): number {
+  const depth = (r: Route): number => {
+    const raw = r.path === '/' ? 0 : r.path.split('/').length - 1;
+    return r.standsFor ? raw - 1 : raw;
+  };
+  return (
+    depth(a) - depth(b) ||
+    (b.standsFor?.count ?? 1) - (a.standsFor?.count ?? 1) ||
+    a.path.localeCompare(b.path, undefined, { numeric: true })
+  );
 }
 
 /**
@@ -209,7 +240,7 @@ export async function allpages(options: AllpagesOptions): Promise<AllpagesResult
   const started = Date.now();
   const url = normalizeUrl(options.url);
   const outDir = resolve(options.outDir ?? 'allpages');
-  const devices = (options.devices ?? ['phone', 'desktop']).map(toDevice);
+  const devices = (options.devices ?? ['phone', 'tablet', 'desktop']).map(toDevice);
   const themes = options.themes ?? (['light', 'dark'] as Theme[]);
   const max = options.max ?? 20;
 
@@ -289,6 +320,7 @@ export async function allpages(options: AllpagesOptions): Promise<AllpagesResult
       routes,
       discovered: discovered.length > 0 ? discovered : routes,
       authWalled: captured.authWalled,
+      botChecked: captured.botChecked,
       noDarkMode: captured.noDarkMode,
       outDir,
       elapsedMs,

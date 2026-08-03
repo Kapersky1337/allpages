@@ -57,7 +57,7 @@ test('the first real font wins over CSS generics', () => {
   assert.equal(primaryFont(undefined), 'Inter');
 });
 
-test('extracts text, boxes and icons — and leaves out what is invisible', async (t) => {
+test('extracts text, boxes and icons, and leaves out what is invisible', async (t) => {
   const b = await getBrowser();
   if (!b) return t.skip('no chromium available');
   const { server, port } = await serve(PAGE);
@@ -109,7 +109,7 @@ test('the emitted SVG is well-formed and escapes page text', async (t) => {
     // Page content containing markup characters must be escaped.
     assert.ok(svg.includes('&amp;') && svg.includes('&lt;world&gt;'), 'text not escaped');
 
-    // It must actually parse as XML — Figma will reject anything else.
+    // It must actually parse as XML; Figma will reject anything else.
     const parsed = await page.evaluate((markup: string) => {
       const doc = new DOMParser().parseFromString(markup, 'image/svg+xml');
       return doc.querySelector('parsererror') ? 'invalid' : 'ok';

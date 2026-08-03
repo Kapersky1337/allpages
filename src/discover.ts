@@ -1,5 +1,6 @@
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { httpHeaders } from './identity.ts';
 import type { Route } from './types.ts';
 
 // Finding every route with zero config is the whole promise, so this tries
@@ -20,7 +21,7 @@ function fileToRoute(relative: string): string | null {
     p = `/${appMatch[1] ?? ''}`;
   } else {
     // SvelteKit: only +page.* is a route. +layout, +error and +page.server
-    // are not pages, and treating them as routes invents URLs that 404 —
+    // are not pages, and treating them as routes invents URLs that 404,
     // `sv create` scaffolds a +layout.svelte, so this hits everyone.
     const svelteMatch = /^(?:src\/)?routes\/(.*\/)?\+page\.(svelte|js|ts)$/.exec(p);
     if (svelteMatch) {
@@ -90,7 +91,10 @@ export function routesFromDisk(projectDir: string): Route[] {
 export async function routesFromSitemap(baseUrl: string, timeoutMs: number): Promise<Route[]> {
   for (const name of ['/sitemap.xml', '/sitemap_index.xml']) {
     try {
-      const res = await fetch(new URL(name, baseUrl), { signal: AbortSignal.timeout(timeoutMs) });
+      const res = await fetch(new URL(name, baseUrl), {
+        signal: AbortSignal.timeout(timeoutMs),
+        headers: httpHeaders(),
+      });
       if (!res.ok) continue;
       const xml = await res.text();
       const paths = new Set<string>();
@@ -143,7 +147,7 @@ export async function routesFromCrawl(
         try {
           const res = await fetch(new URL(path, origin), {
             signal: AbortSignal.timeout(opts.timeoutMs),
-            headers: { accept: 'text/html' },
+            headers: { accept: 'text/html', ...httpHeaders() },
           });
           if (!res.ok || !(res.headers.get('content-type') ?? '').includes('html')) return '';
           return await res.text();
@@ -198,11 +202,19 @@ export function byImportance(a: Route, b: Route): number {
   );
 }
 
-/** Take the `limit` most representative routes, then restore path order. */
-export function sampleRoutes(routes: Route[], limit: number): Route[] {
+/**
+ * Take the `limit` most representative routes, then restore path order so the
+ * sheet reads alphabetically rather than in ranking order. Callers that have
+ * grouped pages into layouts pass their own ranking.
+ */
+export function sampleRoutes(
+  routes: Route[],
+  limit: number,
+  rank: (a: Route, b: Route) => number = byImportance,
+): Route[] {
   if (routes.length <= limit) return routes;
   return [...routes]
-    .sort(byImportance)
+    .sort(rank)
     .slice(0, limit)
     .sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
 }
@@ -216,7 +228,7 @@ export function isDynamic(path: string): boolean {
  * Merge sources, and resolve dynamic templates against real URLs seen while
  * crawling: `/orders/[id]` becomes `/orders/42` when the crawl found one.
  * Templates with no real example are kept, flagged, and rendered as a
- * labeled empty cell — an honest hole beats a screenshot of a 404.
+ * labeled empty cell, because an honest hole beats a screenshot of a 404.
  */
 export function mergeRoutes(fromDisk: Route[], fromWeb: Route[]): Route[] {
   const concrete = fromWeb.filter((r) => !isDynamic(r.path));

@@ -27,7 +27,7 @@ const CHROME = 150; // header + footer + section headings
 /**
  * Pick a sheet width that lands closest to a landscape shape. Tile widths
  * differ per device, so the only honest way to know how tall the result
- * will be is to lay it out — cheaply, for each candidate width.
+ * will be is to lay it out, cheaply, for each candidate width.
  */
 export function chooseSheetWidth(shots: Shot[], tileHeight: number, targetRatio = 1.5): number {
   const captured = shots.filter((s) => s.file);
@@ -42,8 +42,14 @@ export function chooseSheetWidth(shots: Shot[], tileHeight: number, targetRatio 
   }
 
   const widestTile = Math.max(...[...byDevice.values()].map((d) => d.width));
-  let best = { width: 1280, distance: Infinity };
-  for (let columns = 2; columns <= 10; columns++) {
+  // Never buy more width than there is anything to put in it. Chasing the
+  // target ratio alone gives a four-column sheet to a site with one page,
+  // and three quarters of that image is empty.
+  const fullestSection = Math.max(...[...byDevice.values()].map((d) => d.count));
+  const maxColumns = Math.min(10, Math.max(1, fullestSection));
+
+  let best = { width: widestTile + GAP + PADDING, distance: Infinity };
+  for (let columns = 1; columns <= maxColumns; columns++) {
     const width = columns * (widestTile + GAP) + PADDING;
     const content = width - PADDING;
     let height = CHROME;
@@ -74,13 +80,13 @@ function dataUri(outDir: string, file: string): string | null {
   }
 }
 
-/** The contact sheet is an HTML page we screenshot — no image toolchain. */
+/** The contact sheet is an HTML page we screenshot. No image toolchain. */
 export function buildHtml(shots: Shot[], opts: SheetOptions): string {
   const captured = shots.filter((s) => s.file).length;
   const routeCount = new Set(shots.map((s) => s.route.path)).size;
   const seconds = (opts.elapsedMs / 1000).toFixed(1);
 
-  // Group by device so every tile in a block shares a width — mixing a
+  // Group by device so every tile in a block shares a width. Mixing a
   // narrow phone tile with a wide desktop one makes ragged, unreadable rows.
   const shot_ = shots.filter((s) => s.file);
   const deviceOrder = [...new Set(shot_.map((s) => s.device.name))];

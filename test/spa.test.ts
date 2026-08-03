@@ -68,7 +68,7 @@ test('the HTML crawler finds nothing on a client-rendered app', async () => {
       depth: 2,
       timeoutMs: 5000,
     });
-    // Only the entry page — the links don't exist until JS runs.
+    // Only the entry page; the links don't exist until JS runs.
     assert.deepEqual(routes.map((r) => r.path), ['/']);
   } finally {
     server.close();

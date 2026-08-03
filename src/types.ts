@@ -1,4 +1,4 @@
-/** How a route was found — shown on the sheet so the map is honest. */
+/** How a route was found. Shown on the sheet so the map is honest. */
 export type RouteSource = 'crawl' | 'sitemap' | 'manifest' | 'given';
 
 export interface Route {
@@ -9,7 +9,7 @@ export interface Route {
   template?: string;
   /**
    * Set when this page was shot to stand for a family of pages sharing a
-   * layout — `/blog/:slug`, 186 pages. The tile says so.
+   * layout: `/blog/:slug`, 186 pages. The tile says so.
    */
   standsFor?: { pattern: string; count: number };
 }
@@ -32,7 +32,7 @@ export interface Shot {
   file?: string;
   /** Set when the cell has no image, with the reason to print on the sheet. */
   skipped?: string;
-  /** The page redirected somewhere else — usually a login wall. */
+  /** The page redirected somewhere else, usually a login wall. */
   redirectedTo?: string;
   title?: string;
   ms?: number;

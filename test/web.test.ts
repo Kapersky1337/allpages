@@ -81,7 +81,7 @@ test('a missing robots.txt allows everything', async () => {
   }
 });
 
-test('sampling prefers shallow pages — the map, not one deep section', () => {
+test('sampling prefers shallow pages: the map, not one deep section', () => {
   // playwright.dev has 357 routes; alphabetical truncation returns twenty
   // pages of one API section and tells you nothing about the site.
   const routes = [

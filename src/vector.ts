@@ -8,8 +8,8 @@ import type { Page } from 'playwright-core';
  * Deliberately written as a self-contained function evaluated inside the
  * page, using nothing but the DOM and getComputedStyle. Converting a full
  * DOM to SVG in the general case needs a bundler and a stack of CSS
- * dependencies; extracting the primitives a designer actually edits —
- * boxes, type, images — needs none, runs in milliseconds, and never
+ * dependencies; extracting the primitives a designer actually edits
+ * (boxes, type, images) needs none, runs in milliseconds, and never
  * breaks on a CSS feature it has not heard of.
  */
 
@@ -49,7 +49,7 @@ export interface VectorPage {
 }
 
 /** Runs in the browser. Keep it dependency-free and defensive. */
-/* c8 ignore start — executes in the page, not in node */
+/* c8 ignore start: executes in the page, not in node */
 function extract(maxNodes: number): VectorPage {
   const out: VectorNode[] = [];
   const seenText = new Set<Text>();
@@ -120,7 +120,7 @@ function extract(maxNodes: number): VectorPage {
       continue;
     }
 
-    // Images become <image> with their own source — the one place raster
+    // Images become <image> with their own source, the one place raster
     // is correct, because the page itself is raster there.
     if (tag === 'img') {
       const src = (el as HTMLImageElement).currentSrc || (el as HTMLImageElement).src;
@@ -179,7 +179,7 @@ function extract(maxNodes: number): VectorPage {
 
       const size = num(style.fontSize);
       // Split the text across the measured line boxes proportionally to
-      // their widths — good enough to place, and exact for single lines.
+      // their widths, which is good enough to place and exact for single lines.
       const words = content.trim().split(/\s+/);
       const totalWidth = lines.reduce((sum, r) => sum + r.width, 0) || 1;
       let cursor = 0;
@@ -241,7 +241,7 @@ const GENERIC_FAMILIES = new Set([
   'blinkmacsystemfont', 'sans-serif', 'serif', 'monospace', 'cursive', 'fantasy', 'emoji', 'math',
 ]);
 
-/** The first real font in the stack — what Figma should try to match. */
+/** The first real font in the stack, which is what Figma should match. */
 export function primaryFont(family: string | undefined): string {
   if (!family) return 'Inter';
   const names = family.split(',').map((f) => f.replace(/["']/g, '').trim()).filter(Boolean);

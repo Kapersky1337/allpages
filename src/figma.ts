@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Browser } from 'playwright-core';
+import { userAgentFor } from './identity.ts';
 import { preparePage } from './prepare.ts';
 import { extractVector, pageToSvgGroup, type VectorPage } from './vector.ts';
 import type { Device, Route } from './types.ts';
@@ -63,7 +64,9 @@ export async function exportFigma(
       reducedMotion: 'reduce',
       ...(opts.storageState ? { storageState: opts.storageState } : {}),
       ...(opts.insecure ? { ignoreHTTPSErrors: true } : {}),
-      ...(opts.userAgent ? { userAgent: opts.userAgent } : {}),
+      userAgent: opts.userAgent ?? userAgentFor(opts.device, browser.version()),
+      locale: 'en-US',
+      extraHTTPHeaders: { 'accept-language': 'en-US,en;q=0.9' },
     });
     for (;;) {
       const index = cursor++;

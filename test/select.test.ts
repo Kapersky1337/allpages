@@ -22,7 +22,7 @@ function bigSite(): Route[] {
 
 const defaults = { max: 20, only: [], exclude: [], group: true, all: false };
 
-test('a small site is untouched — no grouping, no cap, no surprises', () => {
+test('a small site is untouched: no grouping, no cap, no surprises', () => {
   const all = routes('/', '/about', '/pricing');
   const { routes: picked } = selectRoutes(all, defaults);
   assert.deepEqual(picked.map((r) => r.path), ['/', '/about', '/pricing']);
@@ -102,4 +102,46 @@ test('selection is deterministic', () => {
 test('a filter that matches nothing returns nothing, rather than guessing', () => {
   const { routes: picked } = selectRoutes(bigSite(), { ...defaults, only: ['/nope/*'] });
   assert.equal(picked.length, 0);
+});
+
+/**
+ * A site with more layouts than --max, which is where the cap decides what
+ * the sheet is about. linear.app is the real case: 999 pages, 73 layouts, 20
+ * tiles to spend.
+ */
+function manyLayoutSite(): Route[] {
+  return routes(
+    '/',
+    ...Array.from({ length: 30 }, (_, i) => `/page-${i + 1}`),
+    ...Array.from({ length: 298 }, (_, i) => `/integrations/int-${i + 1}`),
+    ...Array.from({ length: 246 }, (_, i) => `/changelog/rel-${i + 1}`),
+    ...Array.from({ length: 139 }, (_, i) => `/docs/doc-${i + 1}`),
+  );
+}
+
+test('the layout count is reported, not just the page count', () => {
+  const { considered, layouts } = selectRoutes(bigSite(), defaults);
+  assert.equal(considered, 267);
+  assert.ok(layouts < considered, 'grouping should reduce 267 pages to a handful of layouts');
+  assert.ok(layouts >= 7, 'every non-family page still counts as its own layout');
+});
+
+test('layouts standing for hundreds of pages survive the cap', () => {
+  const { routes: picked, layouts } = selectRoutes(manyLayoutSite(), defaults);
+  assert.equal(picked.length, 20);
+  assert.ok(layouts > 20, 'this site has more layouts than tiles to show them in');
+
+  // The whole point of grouping is lost if the cap then throws away the
+  // families and fills the sheet with one-off pages.
+  const stood = picked.filter((r) => r.standsFor).map((r) => r.standsFor!.pattern);
+  assert.ok(stood.includes('/integrations/:slug'), '298 pages must not be dropped for a one-off');
+  assert.ok(stood.includes('/changelog/:slug'), '246 pages must not be dropped for a one-off');
+  assert.ok(stood.includes('/docs/:slug'), '139 pages must not be dropped for a one-off');
+  assert.ok(picked.some((r) => r.path === '/'), 'the homepage always earns a tile');
+});
+
+test('an ungrouped site reports layouts equal to its pages', () => {
+  const { considered, layouts } = selectRoutes(routes('/', '/about'), defaults);
+  assert.equal(considered, 2);
+  assert.equal(layouts, 2);
 });
